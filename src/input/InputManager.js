@@ -264,12 +264,16 @@ export class InputManager {
         let jump = this.isDown('jump');
 
         // Touch input
+        let touchJumpStarted = false;
         if (this.touchControls && this.touchControls.enabled) {
             if (this.touchControls.isFirePressed()) attack = true;
             if (this.touchControls.isJumpPressed()) {
                 jump = true;
                 this.moveInput.up += 1;  // Also set up for swimming
+                // Detect rising edge for use activation
+                if (!this.lastTouchJump) touchJumpStarted = true;
             }
+            this.lastTouchJump = jump;
         }
 
         return {
@@ -278,7 +282,7 @@ export class InputManager {
             up: this.moveInput.up,
             jump: jump,
             attack: attack,
-            use: this.isPressed('use') || this.isPressed('jump'),
+            use: this.isPressed('use') || this.isPressed('jump') || touchJumpStarted,
             alwaysRun: this.alwaysRun
         };
     }
