@@ -64,6 +64,8 @@ void main() {
     vec3 finalColor = mix(backColor.rgb, frontColor.rgb, frontColor.a);
 
     gl_FragColor = vec4(finalColor, 1.0);
+
+    #include <tonemapping_fragment>
 }
 `;
 

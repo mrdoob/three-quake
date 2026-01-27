@@ -311,6 +311,8 @@ export class BSPRenderer {
                     texColor.a *= opacity;
 
                     gl_FragColor = texColor;
+
+                    #include <tonemapping_fragment>
                 }
             `,
             transparent: true,

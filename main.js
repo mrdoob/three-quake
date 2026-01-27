@@ -134,6 +134,9 @@ async function loadPAKFromBuffer(arrayBuffer) {
             }
         };
 
+        // Apply any saved settings at startup
+        menu.applySettings();
+
         // Preload menu sounds
         try {
             await game.audio.loadSoundFromPAK(game.pak, 'sound/misc/menu1.wav');

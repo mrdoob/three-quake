@@ -85,6 +85,12 @@ export class Menu {
             textureSmooth: false    // Texture filtering: false=pixelated, true=smooth
         };
 
+        // Load saved settings from localStorage
+        const saved = localStorage.getItem('quake_settings');
+        if (saved) {
+            Object.assign(this.settings, JSON.parse(saved));
+        }
+
         // Graphics
         this.pics = new Map();
         this.charsetCanvas = null;  // Quake bitmap font
@@ -1654,6 +1660,9 @@ export class Menu {
         if (this.onSettingsChange) {
             this.onSettingsChange(this.settings);
         }
+
+        // Persist settings to localStorage
+        localStorage.setItem('quake_settings', JSON.stringify(this.settings));
     }
 
     show() {

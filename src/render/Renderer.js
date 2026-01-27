@@ -34,6 +34,8 @@ export class Renderer {
         this.renderer.setSize(this.width, this.height);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.renderer.toneMapping = THREE.LinearToneMapping;
+        this.renderer.toneMappingExposure = 1.0;
 
         // Position absolutely so it doesn't affect document flow
         const canvas = this.renderer.domElement;
@@ -134,9 +136,8 @@ export class Renderer {
     setBrightness(value) {
         // Original Quake gamma: lower gamma = brighter (gamma 0.5-1.0 range)
         // Our brightness: 0 = dark, 0.5 = normal, 1 = bright
-        // Map 0-1 brightness to CSS filter brightness (0.5 to 2.0)
-        const filterValue = 0.5 + value * 1.5;
-        this.renderer.domElement.style.filter = `brightness(${filterValue})`;
+        // Map 0-1 brightness to tone mapping exposure (0.5 to 2.0)
+        this.renderer.toneMappingExposure = 0.5 + value * 1.5;
     }
 
     /**

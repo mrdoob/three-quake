@@ -82,6 +82,8 @@ void main() {
     vec3 finalColor = diffuse.rgb * totalLight;
 
     gl_FragColor = vec4(finalColor, diffuse.a);
+
+    #include <tonemapping_fragment>
 }
 `;
 
@@ -93,6 +95,8 @@ varying vec2 vUv;
 
 void main() {
     gl_FragColor = texture2D(diffuseMap, vUv);
+
+    #include <tonemapping_fragment>
 }
 `;
 
