@@ -1136,7 +1136,7 @@ export class Menu {
                 console.log('Help not implemented');
                 break;
             case 4: // Quit
-                alert('Quake by id Software\nThree.js port by @mrdoob');
+                alert('Thanks for playing!');
                 window.location.href = 'https://x.com/mrdoob/status/2015076521531355583';
                 break;
         }
