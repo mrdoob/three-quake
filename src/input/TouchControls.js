@@ -27,6 +27,11 @@ export class TouchControls {
         // Last look position for delta calculation
         this.lastLookPos = { x: 0, y: 0 };
 
+        // Look touch origin and distance (for tap-to-jump detection)
+        this.lookTouchOrigin = { x: 0, y: 0 };
+        this.lookTouchDist = 0;
+        this.jumpImpulse = false;  // One-frame jump trigger from tap
+
         // Pause callback (set externally)
         this.onPause = null;
 
@@ -60,9 +65,9 @@ export class TouchControls {
         this.joystickArea.style.cssText = `
             position: absolute;
             left: 0;
-            bottom: 0;
+            top: 0;
             width: 40%;
-            height: 50%;
+            height: 100%;
             pointer-events: auto;
             touch-action: none;
         `;
@@ -97,45 +102,23 @@ export class TouchControls {
         this.joystickBase.appendChild(this.joystickKnob);
         this.joystickArea.appendChild(this.joystickBase);
 
-        // Right side - look area
+        // Right side - look area (tap to jump, drag to look)
         this.lookArea = document.createElement('div');
         this.lookArea.style.cssText = `
             position: absolute;
             right: 0;
             top: 0;
             width: 60%;
-            height: 70%;
+            height: 100%;
             pointer-events: auto;
             touch-action: none;
         `;
 
-        // Jump button (bottom right)
-        this.jumpButton = document.createElement('div');
-        this.jumpButton.style.cssText = `
-            position: absolute;
-            right: 20px;
-            bottom: 20px;
-            width: 70px;
-            height: 70px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.2);
-            border: 2px solid rgba(255, 255, 255, 0.4);
-            pointer-events: auto;
-            touch-action: none;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: sans-serif;
-            font-size: 12px;
-            color: rgba(255, 255, 255, 0.7);
-        `;
-        this.jumpButton.textContent = 'JUMP';
-
-        // Fire button (above jump)
+        // Fire button (bottom right)
         this.fireButton = document.createElement('div');
         this.fireButton.style.cssText = `
             position: absolute;
-            right: 100px;
+            right: 20px;
             bottom: 20px;
             width: 70px;
             height: 70px;
@@ -212,7 +195,6 @@ export class TouchControls {
         // Assemble UI
         this.overlay.appendChild(this.joystickArea);
         this.overlay.appendChild(this.lookArea);
-        this.overlay.appendChild(this.jumpButton);
         this.overlay.appendChild(this.fireButton);
         this.overlay.appendChild(this.weaponBar);
         this.overlay.appendChild(this.pauseButton);
@@ -236,10 +218,6 @@ export class TouchControls {
         this.lookArea.addEventListener('touchmove', this.onTouchMove, { passive: false });
         this.lookArea.addEventListener('touchend', this.onTouchEnd, { passive: false });
         this.lookArea.addEventListener('touchcancel', this.onTouchEnd, { passive: false });
-
-        this.jumpButton.addEventListener('touchstart', this.onTouchStart, { passive: false });
-        this.jumpButton.addEventListener('touchend', this.onTouchEnd, { passive: false });
-        this.jumpButton.addEventListener('touchcancel', this.onTouchEnd, { passive: false });
 
         this.fireButton.addEventListener('touchstart', this.onTouchStart, { passive: false });
         this.fireButton.addEventListener('touchend', this.onTouchEnd, { passive: false });
@@ -277,10 +255,6 @@ export class TouchControls {
         this.lookArea.removeEventListener('touchend', this.onTouchEnd);
         this.lookArea.removeEventListener('touchcancel', this.onTouchEnd);
 
-        this.jumpButton.removeEventListener('touchstart', this.onTouchStart);
-        this.jumpButton.removeEventListener('touchend', this.onTouchEnd);
-        this.jumpButton.removeEventListener('touchcancel', this.onTouchEnd);
-
         this.fireButton.removeEventListener('touchstart', this.onTouchStart);
         this.fireButton.removeEventListener('touchend', this.onTouchEnd);
         this.fireButton.removeEventListener('touchcancel', this.onTouchEnd);
@@ -296,6 +270,7 @@ export class TouchControls {
         this.moveInput = { forward: 0, right: 0 };
         this.lookDelta = { x: 0, y: 0 };
         this.jumpPressed = false;
+        this.jumpImpulse = false;
         this.firePressed = false;
         this.weaponSelect = 0;
     }
@@ -320,14 +295,13 @@ export class TouchControls {
                 this.joystickBase.style.top = touch.clientY + 'px';
 
             } else if (target === this.lookArea && this.lookTouch === null) {
-                // Start look
+                // Start look (also tracks tap for jump)
                 this.lookTouch = touch.identifier;
                 this.lastLookPos.x = touch.clientX;
                 this.lastLookPos.y = touch.clientY;
-
-            } else if (target === this.jumpButton) {
-                this.jumpPressed = true;
-                this.jumpButton.style.background = 'rgba(255, 255, 255, 0.4)';
+                this.lookTouchOrigin.x = touch.clientX;
+                this.lookTouchOrigin.y = touch.clientY;
+                this.lookTouchDist = 0;
 
             } else if (target === this.fireButton) {
                 this.firePressed = true;
@@ -383,6 +357,11 @@ export class TouchControls {
 
                 this.lastLookPos.x = touch.clientX;
                 this.lastLookPos.y = touch.clientY;
+
+                // Track total distance from origin (for tap detection)
+                const totalDx = touch.clientX - this.lookTouchOrigin.x;
+                const totalDy = touch.clientY - this.lookTouchOrigin.y;
+                this.lookTouchDist = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
             }
         }
     }
@@ -403,12 +382,11 @@ export class TouchControls {
                 this.joystickKnob.style.top = '50%';
 
             } else if (touch.identifier === this.lookTouch) {
-                // End look
+                // End look - if barely moved, it was a tap = jump
+                if (this.lookTouchDist < 10) {
+                    this.jumpImpulse = true;
+                }
                 this.lookTouch = null;
-
-            } else if (target === this.jumpButton) {
-                this.jumpPressed = false;
-                this.jumpButton.style.background = 'rgba(255, 255, 255, 0.2)';
 
             } else if (target === this.fireButton) {
                 this.firePressed = false;
@@ -439,6 +417,10 @@ export class TouchControls {
     }
 
     isJumpPressed() {
+        if (this.jumpImpulse) {
+            this.jumpImpulse = false;
+            return true;
+        }
         return this.jumpPressed;
     }
 
