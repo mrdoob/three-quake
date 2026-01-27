@@ -41,5 +41,5 @@ Code: GPL v2
 
 ## Credits
 
-- Original game by id Software (1996)
-- Three.js port by [@mrdoob](https://github.com/mrdoob) with [@claude](https://claude.ai)
+- Original game by id Software (1996) — [source code](https://github.com/id-Software/Quake)
+- Three.js port by [@mrdoob](https://github.com/mrdoob) with [@claude](https://github.com/claude)
