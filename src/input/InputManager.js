@@ -217,9 +217,7 @@ export class InputManager {
             this.moveInput.forward += touchMove.forward;
             this.moveInput.right += touchMove.right;
 
-            if (this.touchControls.isJumpPressed()) {
-                this.moveInput.up += 1;
-            }
+            // Jump is handled in getMoveInput() to avoid consuming the one-shot impulse
         }
 
         // Normalize diagonal movement
@@ -268,7 +266,10 @@ export class InputManager {
         // Touch input
         if (this.touchControls && this.touchControls.enabled) {
             if (this.touchControls.isFirePressed()) attack = true;
-            if (this.touchControls.isJumpPressed()) jump = true;
+            if (this.touchControls.isJumpPressed()) {
+                jump = true;
+                this.moveInput.up += 1;  // Also set up for swimming
+            }
         }
 
         return {
