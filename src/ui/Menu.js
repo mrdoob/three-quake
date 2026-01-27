@@ -50,8 +50,8 @@ export class Menu {
 
         // Main menu has 5 items
         this.mainMenuItems = 5;
-        // Single player menu has 3 items
-        this.singlePlayerItems = 3;
+        // Single player menu: only New Game is selectable (Load/Save not yet implemented)
+        this.singlePlayerItems = 1;
         // Multiplayer menu has 3 items
         this.multiplayerItems = 3;
         // Setup menu has 5 items
