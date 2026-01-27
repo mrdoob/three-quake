@@ -106,6 +106,23 @@ export class Renderer {
         // This gives ~0.9^72 ≈ 0.0003 decay per second (nearly gone in 0.2s)
         this.punchangle = { pitch: 0, yaw: 0, roll: 0 };
 
+        // V_DriftPitch state (view.c:146-239)
+        // Auto-centers pitch when player is on ground and moving forward
+        this.pitchDrift = {
+            nodrift: true,
+            driftmove: 0,
+            pitchvel: 0,
+            laststop: 0
+        };
+        this.v_centermove = 0.15;  // seconds of forward movement before drift starts
+        this.v_centerspeed = 500;  // degrees/sec pitch centering speed
+
+        // CalcGunAngle state (view.c:705-756)
+        this.gunAngle = {
+            oldYaw: 0,
+            oldPitch: 0
+        };
+
         // Bind resize handler
         window.addEventListener('resize', () => this.onResize());
 
@@ -408,6 +425,94 @@ export class Renderer {
     }
 
     /**
+     * V_StartPitchDrift (view.c:146-160)
+     */
+    startPitchDrift(time) {
+        if (this.pitchDrift.laststop === time) return;
+        if (this.pitchDrift.nodrift || !this.pitchDrift.pitchvel) {
+            this.pitchDrift.pitchvel = this.v_centerspeed;
+            this.pitchDrift.nodrift = false;
+            this.pitchDrift.driftmove = 0;
+        }
+    }
+
+    /**
+     * V_StopPitchDrift (view.c:162-168)
+     */
+    stopPitchDrift(time) {
+        this.pitchDrift.laststop = time;
+        this.pitchDrift.nodrift = true;
+        this.pitchDrift.pitchvel = 0;
+    }
+
+    /**
+     * V_DriftPitch (view.c:182-239)
+     * Auto-centers pitch when player is on ground and moving forward.
+     */
+    driftPitch(angles, deltaTime, options = {}) {
+        const onGround = options.onGround !== undefined ? options.onGround : true;
+        const forwardMove = options.forwardMove || 0;
+        const time = options.time || 0;
+        const demoPlayback = options.demoPlayback || false;
+
+        if (demoPlayback || !onGround) {
+            this.pitchDrift.driftmove = 0;
+            this.pitchDrift.pitchvel = 0;
+            return;
+        }
+
+        if (this.pitchDrift.nodrift) {
+            if (Math.abs(forwardMove) < 200) {  // cl_forwardspeed default
+                this.pitchDrift.driftmove = 0;
+            } else {
+                this.pitchDrift.driftmove += deltaTime;
+            }
+            if (this.pitchDrift.driftmove > this.v_centermove) {
+                this.startPitchDrift(time);
+            }
+            return;
+        }
+
+        const idealPitch = 0; // Ground level
+        const delta = idealPitch - angles.pitch;
+
+        if (delta === 0) {
+            this.pitchDrift.pitchvel = 0;
+            return;
+        }
+
+        let move = deltaTime * this.pitchDrift.pitchvel;
+        this.pitchDrift.pitchvel += deltaTime * this.v_centerspeed;
+
+        if (delta > 0) {
+            if (move > delta) {
+                this.pitchDrift.pitchvel = 0;
+                move = delta;
+            }
+            angles.pitch += move;
+        } else {
+            if (move > -delta) {
+                this.pitchDrift.pitchvel = 0;
+                move = -delta;
+            }
+            angles.pitch -= move;
+        }
+    }
+
+    /**
+     * V_BoundOffsets (view.c:763-784)
+     * Prevent camera from going outside entity clipping hull.
+     */
+    boundOffsets(camPos, entityPos) {
+        if (camPos.x < entityPos.x - 14) camPos.x = entityPos.x - 14;
+        else if (camPos.x > entityPos.x + 14) camPos.x = entityPos.x + 14;
+        if (camPos.y < entityPos.y - 14) camPos.y = entityPos.y - 14;
+        else if (camPos.y > entityPos.y + 14) camPos.y = entityPos.y + 14;
+        if (camPos.z < entityPos.z - 22) camPos.z = entityPos.z - 22;
+        else if (camPos.z > entityPos.z + 30) camPos.z = entityPos.z + 30;
+    }
+
+    /**
      * Calculate strafe roll (V_CalcRoll from view.c)
      * Roll the camera when strafing, like original Quake
      *
@@ -466,12 +571,17 @@ export class Renderer {
         // Eye height from cl.viewheight (default 22, can be 12 crouching, 8 dead)
         const eyeHeight = options.viewHeight !== undefined ? options.viewHeight : 22;
 
-        // Calculate view bob from velocity and time
+        // V_DriftPitch — auto-center pitch when on ground (view.c:182-239)
+        const deltaTime = options.deltaTime || 0;
         const time = options.time || 0;
+        if (!options.demoPlayback) {
+            this.driftPitch(angles, deltaTime, options);
+        }
+
+        // Calculate view bob from velocity and time
         const bob = this.calcBob(time, velocity);
 
         // Calculate stair smoothing
-        const deltaTime = options.deltaTime || 0;
         const onGround = options.onGround !== undefined ? options.onGround : true;
         const stairSmooth = this.calcStairSmooth(position.z, onGround, deltaTime);
 
@@ -479,10 +589,16 @@ export class Renderer {
         // Add +1/32 on each axis to prevent water plane clipping at exact boundaries
         // (from view.c:898-900 V_CalcRefdef)
         const PRECISION_OFFSET = 1 / 32;
-        const camX = position.x + PRECISION_OFFSET;
-        const camY = position.y + PRECISION_OFFSET;
-        const camZ = position.z + eyeHeight + bob + stairSmooth + PRECISION_OFFSET;
-        this.camera.position.set(camX, camY, camZ);
+        const camPos = {
+            x: position.x + PRECISION_OFFSET,
+            y: position.y + PRECISION_OFFSET,
+            z: position.z + eyeHeight + bob + stairSmooth + PRECISION_OFFSET
+        };
+
+        // V_BoundOffsets — prevent camera from going outside clipping hull (view.c:763-784)
+        this.boundOffsets(camPos, position);
+
+        this.camera.position.set(camPos.x, camPos.y, camPos.z);
 
         // Calculate damage kick contribution (time-based decay like original)
         // Original: viewangles += v_dmg_time/v_kicktime * v_dmg_pitch/roll
@@ -513,12 +629,20 @@ export class Renderer {
 
         // Look at point in front of camera
         const target = new THREE.Vector3(
-            camX + forward.x,
-            camY + forward.y,
-            camZ + forward.z
+            camPos.x + forward.x,
+            camPos.y + forward.y,
+            camPos.z + forward.z
         );
 
         this.camera.lookAt(target);
+
+        // Dead view angle (view.c:824): r_refdef.viewangles[ROLL] = 80
+        const health = options.health !== undefined ? options.health : 100;
+        if (health <= 0) {
+            const rollRad = THREE.MathUtils.degToRad(80);
+            this.camera.rotateZ(rollRad);
+            return;
+        }
 
         // Calculate strafe roll from velocity (V_CalcRoll)
         const strafeRoll = this.calcStrafeRoll(angles, velocity);

@@ -156,8 +156,9 @@ async function loadPAKFromBuffer(arrayBuffer) {
         // Attach console to game for update/draw in game loop
         game.console = gameConsole;
 
-        // Give menu access to console
+        // Give menu access to console and save system
         menu.gameConsole = gameConsole;
+        menu.saveSystem = game.saveSystem;
 
         // Handle console commands
         gameConsole.onCommand = (cmd, args) => {
@@ -284,6 +285,22 @@ async function loadPAKFromBuffer(arrayBuffer) {
             console.log('Quit requested');
             // In browser, we can't really quit - just show a message
             alert('Thanks for playing!');
+        };
+
+        menu.onLoadGame = async (slot) => {
+            if (game.saveSystem) {
+                const success = await game.saveSystem.load(slot);
+                if (success) {
+                    menu.hide();
+                    menu.gameInProgress = true;
+                }
+            }
+        };
+
+        menu.onSaveGame = (slot) => {
+            if (game.saveSystem) {
+                game.saveSystem.save(slot);
+            }
         };
 
         // Called when user dismisses menu while demo is playing (Escape at main menu)

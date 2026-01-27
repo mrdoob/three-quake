@@ -654,16 +654,33 @@ export class PlayerMovement {
 
                 // Clip velocity to all accumulated planes
                 this.clipToPlanes(player, planes, originalVelocity);
+
+                // Check if velocity reversed direction (sv_phys.c:354-358)
+                // Prevents oscillation on slopes
+                const dot = player.velocity.x * originalVelocity.x +
+                           player.velocity.y * originalVelocity.y +
+                           player.velocity.z * originalVelocity.z;
+                if (dot <= 0) {
+                    player.velocity.x = 0;
+                    player.velocity.y = 0;
+                    player.velocity.z = 0;
+                    return blocked;
+                }
             }
         }
 
         return blocked;
     }
 
-    // SV_WalkMove - handles stepping up stairs
+    // SV_WalkMove (sv_phys.c:958-1049) - handles stepping up stairs
     walkMove(player, deltaTime) {
         const originalPosition = { ...player.position };
         const originalVelocity = { ...player.velocity };
+
+        // Clear onGround before flyMove (sv_phys.c:970-971)
+        // It will be re-set by flyMove/trace results if appropriate
+        const wasOnGround = player.onGround;
+        player.onGround = false;
 
         // First, try a normal move
         let blocked = this.flyMove(player, deltaTime);

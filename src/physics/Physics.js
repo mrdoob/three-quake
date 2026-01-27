@@ -92,9 +92,10 @@ export class Physics {
 
     updateStep(entity, deltaTime) {
         // Monster ground movement with step climbing (MOVETYPE_STEP from original Quake)
-        // Apply gravity when not on ground
+        // Apply gravity when not on ground (SV_AddGravity with entity multiplier)
         if (!entity.onGround) {
-            entity.velocity.z -= PHYSICS.GRAVITY * deltaTime;
+            const gravityMult = entity.gravity !== undefined ? entity.gravity : 1.0;
+            entity.velocity.z -= gravityMult * PHYSICS.GRAVITY * deltaTime;
         }
 
         // Apply friction when on ground (original Quake: sv_friction = 4)
@@ -182,8 +183,9 @@ export class Physics {
         // Prevents double-movement of tossed items that have landed
         if (entity.onGround) return;
 
-        // Apply gravity
-        entity.velocity.z -= PHYSICS.GRAVITY * deltaTime;
+        // Apply gravity with per-entity multiplier (SV_AddGravity, sv_phys.c:371-390)
+        const gravityMult = entity.gravity !== undefined ? entity.gravity : 1.0;
+        entity.velocity.z -= gravityMult * PHYSICS.GRAVITY * deltaTime;
 
         // Clamp velocity
         this.clampVelocity(entity.velocity);
@@ -230,8 +232,9 @@ export class Physics {
     }
 
     updateBounce(entity, deltaTime) {
-        // Apply gravity
-        entity.velocity.z -= PHYSICS.GRAVITY * deltaTime;
+        // Apply gravity with per-entity multiplier (SV_AddGravity)
+        const gravityMult = entity.gravity !== undefined ? entity.gravity : 1.0;
+        entity.velocity.z -= gravityMult * PHYSICS.GRAVITY * deltaTime;
         this.clampVelocity(entity.velocity);
 
         const trace = this.move(entity, deltaTime);
@@ -484,6 +487,83 @@ export class Physics {
         return this.collision.pointContents(point);
     }
 
+    /**
+     * SV_CheckWaterTransition (sv_phys.c:1198-1236)
+     * Plays splash sound when entering/exiting water.
+     */
+    checkWaterTransition(entity) {
+        const contents = this.collision.pointContents(entity.position);
+        const wasInWater = entity.waterType && entity.waterType <= -3; // CONTENTS_WATER=-3, LAVA=-5, SLIME=-4
+        const isInWater = contents <= -3;
+
+        entity.waterType = contents;
+
+        if (!wasInWater && isInWater) {
+            // Entered water
+            if (this.game && this.game.audio) {
+                this.game.audio.playPositioned('sound/misc/h2ohit1.wav', entity.position, 1.0);
+            }
+        } else if (wasInWater && !isInWater) {
+            // Left water
+            if (this.game && this.game.audio) {
+                this.game.audio.playPositioned('sound/misc/h2ohit1.wav', entity.position, 1.0);
+            }
+        }
+    }
+
+    /**
+     * SV_CheckStuck (sv_phys.c:762-800)
+     * If entity is stuck in BSP, try to nudge it free.
+     */
+    checkStuck(entity) {
+        const hull = entity.hull || PHYSICS.HULL_PLAYER;
+        if (!this.collision.hullPointContents(0, entity.position, this.collision.getHullIndex(hull))) {
+            // Not stuck
+            entity.oldPosition = { ...entity.position };
+            return false;
+        }
+
+        // Try restoring old position
+        if (entity.oldPosition) {
+            const oldContents = this.collision.hullPointContents(0, entity.oldPosition, this.collision.getHullIndex(hull));
+            if (!oldContents) {
+                entity.position.x = entity.oldPosition.x;
+                entity.position.y = entity.oldPosition.y;
+                entity.position.z = entity.oldPosition.z;
+                return false;
+            }
+        }
+
+        // Try nudging in various directions (18 attempts like original)
+        const offsets = [0, -1, 1];
+        for (let z = 0; z < 18; z++) {
+            for (const ox of offsets) {
+                for (const oy of offsets) {
+                    const testPos = {
+                        x: entity.position.x + ox,
+                        y: entity.position.y + oy,
+                        z: entity.position.z + z
+                    };
+                    const c = this.collision.hullPointContents(0, testPos, this.collision.getHullIndex(hull));
+                    if (!c) {
+                        entity.position.x = testPos.x;
+                        entity.position.y = testPos.y;
+                        entity.position.z = testPos.z;
+                        entity.oldPosition = { ...entity.position };
+                        return false;
+                    }
+                }
+            }
+        }
+
+        entity.oldPosition = { ...entity.position };
+        return true; // Still stuck
+    }
+
+    /**
+     * ClipVelocity (sv_phys.c:190-213)
+     * Returns blocked flags: 1 = floor, 2 = wall/step
+     */
     clipVelocity(velocity, normal, overbounce) {
         const backoff = (
             velocity.x * normal.x +
@@ -495,19 +575,30 @@ export class Physics {
         velocity.y -= normal.y * backoff;
         velocity.z -= normal.z * backoff;
 
-        // Clamp to avoid tiny values
+        // Clamp to avoid tiny values (STOP_EPSILON = 0.1)
         if (Math.abs(velocity.x) < 0.1) velocity.x = 0;
         if (Math.abs(velocity.y) < 0.1) velocity.y = 0;
         if (Math.abs(velocity.z) < 0.1) velocity.z = 0;
+
+        // Return blocked flags like original C
+        let blocked = 0;
+        if (normal.z > 0) blocked |= 1;  // floor
+        if (normal.z === 0) blocked |= 2; // step/wall
+        return blocked;
     }
 
     /**
-     * Clamp velocity per-axis (SV_CheckVelocity from sv_phys.c:90-114)
-     *
-     * Original Quake clamps each axis independently to ±sv_maxvelocity (2000),
-     * NOT by total magnitude. This allows faster diagonal movement.
+     * SV_CheckVelocity (sv_phys.c:90-114)
+     * Clamp velocity per-axis to ±sv_maxvelocity (2000) and check for NaN.
      */
     clampVelocity(velocity) {
+        // NaN detection (sv_phys.c:99-108)
+        for (const axis of ['x', 'y', 'z']) {
+            if (!isFinite(velocity[axis])) {
+                velocity[axis] = 0;
+            }
+        }
+
         // Per-axis clamping like original Quake
         if (velocity.x > PHYSICS.MAX_VELOCITY) {
             velocity.x = PHYSICS.MAX_VELOCITY;

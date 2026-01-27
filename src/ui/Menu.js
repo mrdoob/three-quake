@@ -18,7 +18,10 @@ export const MENU_STATE = {
     MULTIPLAYER: 3,
     SETUP: 4,
     OPTIONS: 5,
-    VIDEO_OPTIONS: 6
+    VIDEO_OPTIONS: 6,
+    LOAD: 7,
+    SAVE: 8,
+    HELP: 9
 };
 
 export class Menu {
@@ -96,11 +99,24 @@ export class Menu {
         this.charsetCanvas = null;  // Quake bitmap font
         this.loaded = false;
 
+        // Load/Save state (original: MAX_SAVEGAMES = 12, shared cursor)
+        this.loadCursor = 0;
+        this.saveSlotNames = [];  // Array of 8 slot description strings
+        this.saveSlotLoadable = []; // Array of 8 booleans
+
+        // Help screen state (original: NUM_HELP_PAGES = 6)
+        this.helpPage = 0;
+
+        // Save system reference (set externally)
+        this.saveSystem = null;
+
         // Callbacks
         this.onNewGame = null;
         this.onQuit = null;
         this.onResume = null;  // Called when user wants to resume game
         this.onDismiss = null;  // Called when user dismisses menu (e.g., to return to demo)
+        this.onLoadGame = null;  // Called with slot number when user loads a game
+        this.onSaveGame = null;  // Called with slot number when user saves a game
 
         // Track if there's a game in progress (for showing Continue option)
         this.gameInProgress = false;
@@ -148,6 +164,13 @@ export class Menu {
             this.loadLmp('mp_menu');     // Multiplayer menu items
             this.loadLmp('bigbox');      // Big box for player preview
             this.loadLmp('menuplyr');    // Player model image
+            this.loadLmp('p_load');      // Load game title
+            this.loadLmp('p_save');      // Save game title
+
+            // Load help screen pages (help0.lmp through help5.lmp)
+            for (let i = 0; i <= 5; i++) {
+                this.loadLmp(`help${i}`);
+            }
 
             // Load animated cursor (6 frames)
             for (let i = 1; i <= 6; i++) {
@@ -555,6 +578,15 @@ export class Menu {
                 break;
             case MENU_STATE.VIDEO_OPTIONS:
                 this.drawVideoOptions();
+                break;
+            case MENU_STATE.LOAD:
+                this.drawLoad();
+                break;
+            case MENU_STATE.SAVE:
+                this.drawSave();
+                break;
+            case MENU_STATE.HELP:
+                this.drawHelp();
                 break;
         }
 
@@ -1014,6 +1046,16 @@ export class Menu {
             return -1;
         }
 
+        if (this.state === MENU_STATE.LOAD || this.state === MENU_STATE.SAVE) {
+            // Load/Save menus: 8 slots at y=32, 8px apart, x=8-300
+            if (x < 8 || x > 300) return -1;
+            const itemIndex = Math.floor((y - 32) / 8);
+            if (itemIndex >= 0 && itemIndex < 8) {
+                return itemIndex;
+            }
+            return -1;
+        }
+
         if (this.state === MENU_STATE.SETUP) {
             // Setup menu has specific Y positions: 40, 56, 80, 104, 140
             const cursorYPositions = [40, 56, 80, 104, 140];
@@ -1049,6 +1091,12 @@ export class Menu {
     }
 
     cursorUp() {
+        // Help screen: up/down navigate pages (original M_Help_Key)
+        if (this.state === MENU_STATE.HELP) {
+            this.helpPage = (this.helpPage + 5) % 6;  // Previous page
+            this.playSound('misc/menu2.wav');
+            return;
+        }
         this.cursor--;
         if (this.cursor < 0) {
             this.cursor = this.getMaxItems() - 1;
@@ -1057,6 +1105,12 @@ export class Menu {
     }
 
     cursorDown() {
+        // Help screen: up/down navigate pages (original M_Help_Key)
+        if (this.state === MENU_STATE.HELP) {
+            this.helpPage = (this.helpPage + 1) % 6;  // Next page
+            this.playSound('misc/menu2.wav');
+            return;
+        }
         this.cursor++;
         if (this.cursor >= this.getMaxItems()) {
             this.cursor = 0;
@@ -1079,6 +1133,11 @@ export class Menu {
                 return this.optionsItems;
             case MENU_STATE.VIDEO_OPTIONS:
                 return 3;  // FOV, Texture Filtering, Back
+            case MENU_STATE.LOAD:
+            case MENU_STATE.SAVE:
+                return 8;  // 8 save slots (original had 12, we use 8)
+            case MENU_STATE.HELP:
+                return 1;  // Single page, navigation via left/right
             default:
                 return 1;
         }
@@ -1105,6 +1164,12 @@ export class Menu {
                 break;
             case MENU_STATE.VIDEO_OPTIONS:
                 this.selectVideoOptionsMenu();
+                break;
+            case MENU_STATE.LOAD:
+                this.selectLoadMenu();
+                break;
+            case MENU_STATE.SAVE:
+                this.selectSaveMenu();
                 break;
         }
     }
@@ -1138,8 +1203,9 @@ export class Menu {
                 this.loadCurrentSettings();
                 break;
             case 3: // Help
-                // Not implemented
-                console.log('Help not implemented');
+                this.state = MENU_STATE.HELP;
+                this.helpPage = 0;
+                this.cursor = 0;
                 break;
             case 4: // Quit
                 alert('Thanks for playing!');
@@ -1156,12 +1222,18 @@ export class Menu {
                 }
                 break;
             case 1: // Load Game
-                // Not implemented
-                console.log('Load Game not implemented');
+                this.scanSaves();
+                this.state = MENU_STATE.LOAD;
+                this.cursor = this.loadCursor;
                 break;
             case 2: // Save Game
-                // Not implemented
-                console.log('Save Game not implemented');
+                if (!this.gameInProgress) {
+                    // Can't save if no game in progress (original: sv.active check)
+                    return;
+                }
+                this.scanSaves();
+                this.state = MENU_STATE.SAVE;
+                this.cursor = this.loadCursor;
                 break;
         }
     }
@@ -1226,6 +1298,20 @@ export class Menu {
                 this.state = MENU_STATE.OPTIONS;
                 this.cursor = 9;  // Return to Video Options item
                 break;
+            case MENU_STATE.LOAD:
+                this.loadCursor = this.cursor;  // Preserve cursor position
+                this.state = MENU_STATE.SINGLE_PLAYER;
+                this.cursor = 1;  // Return to Load Game item
+                break;
+            case MENU_STATE.SAVE:
+                this.loadCursor = this.cursor;  // Preserve cursor position
+                this.state = MENU_STATE.SINGLE_PLAYER;
+                this.cursor = 2;  // Return to Save Game item
+                break;
+            case MENU_STATE.HELP:
+                this.state = MENU_STATE.MAIN;
+                this.cursor = this.gameInProgress ? 4 : 3;  // Return to Help item
+                break;
             case MENU_STATE.MAIN:
                 // At main menu with transparent background (demo playing),
                 // Escape dismisses menu and returns to demo
@@ -1242,6 +1328,125 @@ export class Menu {
             // Resume audio context if suspended (requires user interaction)
             this.audio.resume();
             this.audio.playLocal(`sound/${name}`);
+        }
+    }
+
+    // --- Load/Save/Help screens ---
+
+    /**
+     * Scan save slots and populate slot names/loadable status
+     * Original: M_ScanSaves in menu.c
+     */
+    scanSaves() {
+        this.saveSlotNames = [];
+        this.saveSlotLoadable = [];
+
+        for (let i = 0; i < 8; i++) {
+            if (this.saveSystem) {
+                const info = this.saveSystem.getSaveInfo(i);
+                if (info) {
+                    // Format: "map - date" truncated to 39 chars (like original)
+                    const date = new Date(info.timestamp);
+                    const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const desc = `${info.map} - ${dateStr}`.slice(0, 39);
+                    this.saveSlotNames.push(desc);
+                    this.saveSlotLoadable.push(true);
+                } else {
+                    this.saveSlotNames.push('--- UNUSED SLOT ---');
+                    this.saveSlotLoadable.push(false);
+                }
+            } else {
+                this.saveSlotNames.push('--- UNUSED SLOT ---');
+                this.saveSlotLoadable.push(false);
+            }
+        }
+    }
+
+    drawLoad() {
+        // Draw background plaque
+        this.drawPic(16, 4, 'qplaque');
+
+        // Draw load title (p_load.lmp centered at y=4)
+        const title = this.pics.get('p_load');
+        if (title) {
+            this.drawPic((320 - title.width) / 2, 4, 'p_load');
+        }
+
+        // Draw save slot names (x=16, y=32, 8px apart)
+        for (let i = 0; i < 8; i++) {
+            const name = this.saveSlotNames[i] || '--- UNUSED SLOT ---';
+            this.drawText(16, 32 + i * 8, name);
+        }
+
+        // Draw cursor (x=8, animated character 12/13)
+        const cursorChar = 12 + (Math.floor(this.time * 4) & 1);
+        this.drawChar(8, 32 + this.cursor * 8, cursorChar);
+    }
+
+    drawSave() {
+        // Draw background plaque
+        this.drawPic(16, 4, 'qplaque');
+
+        // Draw save title (p_save.lmp centered at y=4)
+        const title = this.pics.get('p_save');
+        if (title) {
+            this.drawPic((320 - title.width) / 2, 4, 'p_save');
+        }
+
+        // Draw save slot names (x=16, y=32, 8px apart)
+        for (let i = 0; i < 8; i++) {
+            const name = this.saveSlotNames[i] || '--- UNUSED SLOT ---';
+            this.drawText(16, 32 + i * 8, name);
+        }
+
+        // Draw cursor (x=8, animated character 12/13)
+        const cursorChar = 12 + (Math.floor(this.time * 4) & 1);
+        this.drawChar(8, 32 + this.cursor * 8, cursorChar);
+    }
+
+    drawHelp() {
+        // Draw full-screen help page (help0.lmp through help5.lmp)
+        const pageName = `help${this.helpPage}`;
+        const pic = this.pics.get(pageName);
+        if (pic) {
+            // Draw at (0, 0) filling the 320x200 screen
+            this.drawPic(0, 0, pageName);
+        } else {
+            // Fallback if help graphics not available
+            this.drawCenteredText(80, `Help Page ${this.helpPage + 1} of 6`);
+            this.drawCenteredText(100, 'Use arrow keys to navigate');
+            this.drawCenteredText(120, 'Press ESC to return');
+        }
+    }
+
+    selectLoadMenu() {
+        // Only load if slot is valid (original: loadable[load_cursor])
+        if (!this.saveSlotLoadable[this.cursor]) {
+            return;
+        }
+
+        this.loadCursor = this.cursor;
+
+        // Hide menu and load the game
+        this.hide();
+
+        if (this.onLoadGame) {
+            this.onLoadGame(this.cursor);
+        } else if (this.saveSystem) {
+            this.saveSystem.load(this.cursor);
+        }
+    }
+
+    selectSaveMenu() {
+        this.loadCursor = this.cursor;
+
+        // Hide menu and save the game
+        this.hide();
+
+        if (this.onSaveGame) {
+            this.onSaveGame(this.cursor);
+        } else if (this.saveSystem) {
+            this.saveSystem.save(this.cursor);
         }
     }
 
@@ -1581,6 +1786,14 @@ export class Menu {
                     this.playSound('misc/menu3.wav');
                     break;
             }
+        } else if (this.state === MENU_STATE.HELP) {
+            // Help: left/right and up/down navigate pages
+            if (direction > 0) {
+                this.helpPage = (this.helpPage + 1) % 6;
+            } else {
+                this.helpPage = (this.helpPage + 5) % 6;
+            }
+            this.playSound('misc/menu2.wav');
         } else if (this.state === MENU_STATE.SETUP) {
             switch (this.cursor) {
                 case 2: // Shirt color

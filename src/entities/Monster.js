@@ -2023,6 +2023,7 @@ function monsterMoveStep(monster, moveX, moveY, game) {
         monster.data.flags &= ~1;
     }
     monster.onGround = true;
+    monster.groundEntity = trace.entity || null; // SV_movestep: ent->v.groundentity = EDICT_TO_PROG(trace.ent)
 
     return true;
 }
@@ -2077,13 +2078,14 @@ function newChaseDir(monster, enemyPos, dist, game) {
     if (d[1] !== DI_NODIR && d[2] !== DI_NODIR) {
         let tdir;
         if (d[1] === 0) tdir = d[2] === 90 ? 45 : 315;
-        else tdir = d[2] === 90 ? 135 : 215;
+        else tdir = d[2] === 90 ? 135 : 225;
 
         if (tdir !== turnaround && stepDirection(monster, tdir, dist, game)) return;
     }
 
     // Randomly swap X/Y priority
-    if ((Math.random() < 0.5) || Math.abs(deltay) > Math.abs(deltax)) {
+    // C: ((rand()&3) & 1) — true when lowest 2 bits are both 1, i.e. 25% chance
+    if (((Math.random() * 4 | 0) === 1) || Math.abs(deltay) > Math.abs(deltax)) {
         const tmp = d[1];
         d[1] = d[2];
         d[2] = tmp;
@@ -2172,9 +2174,10 @@ function moveToGoal(monster, dist, game) {
     // Initialize flags if needed
     if (monster.data.flags === undefined) monster.data.flags = 0;
 
-    // If close enough to enemy, don't move
-    const goal = monster.enemy || monster.goalEntity;
-    if (monster.enemy && closeEnough(monster, goal, dist)) return;
+    // If close enough to goal, don't move
+    // C: goal = PROG_TO_EDICT(ent->v.goalentity) — uses goalEntity, not enemy
+    const goal = monster.goalEntity || monster.enemy;
+    if (monster.enemy && goal && closeEnough(monster, goal, dist)) return;
 
     // Save position before trace-based movement
     const startX = monster.position.x;
