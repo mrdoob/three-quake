@@ -192,7 +192,6 @@ export class Effects {
         this.renderer = renderer;  // Reference to Renderer for BSP dynamic lighting
         this.camera = camera;      // Reference to camera for distance-based particle scaling
         this.particles = [];
-        this.explosions = [];
         this.muzzleFlashes = [];
         this.dynamicLights = [];  // Quake-style dlights (Three.js PointLights)
         this.entityParticles = new Map();  // Track entity particle effects by entity
@@ -228,13 +227,6 @@ export class Effects {
             blending: THREE.AdditiveBlending,
             depthWrite: false,
             map: this.particleTexture
-        });
-
-        // Explosion sprite
-        this.explosionMaterial = new THREE.SpriteMaterial({
-            color: 0xff8800,
-            transparent: true,
-            blending: THREE.AdditiveBlending
         });
 
         // Muzzle flash
@@ -373,18 +365,6 @@ export class Effects {
             duration: 0.5,
             decay: 300
         });
-
-        // Create expanding core sprite
-        const sprite = new THREE.Sprite(this.explosionMaterial.clone());
-        sprite.position.set(position.x, position.y, position.z);
-        sprite.scale.setScalar(20);
-
-        sprite.userData.startTime = performance.now() / 1000;
-        sprite.userData.duration = 0.4;
-        sprite.userData.maxScale = 120;
-
-        this.scene.add(sprite);
-        this.explosions.push(sprite);
 
         // Original Quake spawns 1024 particles
         const particleCount = 1024;
@@ -742,17 +722,13 @@ export class Effects {
 
     // Alias for explosion (used by monster projectiles)
     spawnExplosion(position, scale = 1.0) {
-        // Create expanding sprite
-        const sprite = new THREE.Sprite(this.explosionMaterial.clone());
-        sprite.position.set(position.x, position.y, position.z);
-        sprite.scale.setScalar(10 * scale);
-
-        sprite.userData.startTime = performance.now() / 1000;
-        sprite.userData.duration = 0.3 * scale;
-        sprite.userData.maxScale = 80 * scale;
-
-        this.scene.add(sprite);
-        this.explosions.push(sprite);
+        // Dynamic light
+        this.spawnDynamicLight(position, {
+            color: 0xff6600,
+            radius: 350 * scale,
+            duration: 0.5,
+            decay: 300
+        });
 
         // Add some spark particles
         for (let i = 0; i < Math.floor(5 * scale); i++) {
@@ -1047,24 +1023,6 @@ export class Effects {
                 if (light.userData.decay > 0) {
                     light.distance = Math.max(0, light.userData.startRadius - light.userData.decay * elapsed);
                 }
-            }
-        }
-
-        // Update explosions
-        for (let i = this.explosions.length - 1; i >= 0; i--) {
-            const explosion = this.explosions[i];
-            const elapsed = now - explosion.userData.startTime;
-            const progress = elapsed / explosion.userData.duration;
-
-            if (progress >= 1) {
-                this.scene.remove(explosion);
-                explosion.material.dispose();
-                this.explosions.splice(i, 1);
-            } else {
-                // Expand and fade
-                const scale = explosion.userData.maxScale * progress;
-                explosion.scale.setScalar(scale);
-                explosion.material.opacity = 1 - progress;
             }
         }
 
@@ -1861,12 +1819,6 @@ export class Effects {
             if (particle.material) particle.material.dispose();
         }
         this.particles = [];
-
-        for (const explosion of this.explosions) {
-            this.scene.remove(explosion);
-            explosion.material.dispose();
-        }
-        this.explosions = [];
 
         for (const flash of this.muzzleFlashes) {
             this.scene.remove(flash);
