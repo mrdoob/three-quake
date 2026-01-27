@@ -128,20 +128,20 @@ export class Physics {
         };
 
         const hull = entity.hull || PHYSICS.HULL_PLAYER;
-        let trace = this.collision.trace(start, end, hull);
+        let trace = this.traceLine(start, end, hull);
 
         if (trace.fraction < 1.0 && trace.plane && trace.plane.normal.z < 0.7) {
             // Hit a wall, try stepping up
             const stepStart = { x: start.x, y: start.y, z: start.z + PHYSICS.STEP_SIZE };
             const stepEnd = { x: end.x, y: end.y, z: end.z + PHYSICS.STEP_SIZE };
 
-            const stepTrace = this.collision.trace(stepStart, stepEnd, hull);
+            const stepTrace = this.traceLine(stepStart, stepEnd, hull);
 
             if (stepTrace.fraction > trace.fraction) {
                 // Step up worked, now trace down to find ground
                 const downStart = stepTrace.endpos;
                 const downEnd = { x: downStart.x, y: downStart.y, z: downStart.z - PHYSICS.STEP_SIZE - 1 };
-                const downTrace = this.collision.trace(downStart, downEnd, hull);
+                const downTrace = this.traceLine(downStart, downEnd, hull);
 
                 entity.position.x = downTrace.endpos.x;
                 entity.position.y = downTrace.endpos.y;
@@ -168,7 +168,7 @@ export class Physics {
             }
         } else {
             // Check ground below
-            const groundTrace = this.collision.trace(
+            const groundTrace = this.traceLine(
                 entity.position,
                 { x: entity.position.x, y: entity.position.y, z: entity.position.z - 2 },
                 hull
@@ -268,7 +268,7 @@ export class Physics {
         };
 
         const hull = entity.hull || PHYSICS.HULL_POINT;
-        const trace = this.collision.trace(start, end, hull);
+        const trace = this.traceLine(start, end, hull);
 
         // Update position
         entity.position.x = trace.endpos.x;
