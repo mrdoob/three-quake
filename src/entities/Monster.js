@@ -2176,6 +2176,11 @@ function moveToGoal(monster, dist, game) {
     const goal = monster.enemy || monster.goalEntity;
     if (monster.enemy && closeEnough(monster, goal, dist)) return;
 
+    // Save position before trace-based movement
+    const startX = monster.position.x;
+    const startY = monster.position.y;
+    const startZ = monster.position.z;
+
     // 25% chance: pick new chase direction (prevents stuck loops)
     // Otherwise: try stepping in current ideal_yaw direction
     if (Math.random() < 0.25 || !stepDirection(monster, monster.data.idealYaw, dist, game)) {
@@ -2183,9 +2188,24 @@ function moveToGoal(monster, dist, game) {
         newChaseDir(monster, enemyPos, dist, game);
     }
 
-    // Clear velocity — position was moved directly by the trace functions
-    monster.velocity.x = 0;
-    monster.velocity.y = 0;
+    // Convert position delta into velocity for smooth physics-driven movement.
+    // The traces validated the move and updated position directly — we capture
+    // the delta, restore the old position, and set velocity so the physics
+    // system moves the monster there smoothly over the think interval (0.1s).
+    const dx = monster.position.x - startX;
+    const dy = monster.position.y - startY;
+    const dz = monster.position.z - startZ;
+
+    monster.position.x = startX;
+    monster.position.y = startY;
+    monster.position.z = startZ;
+
+    const thinkInterval = 0.1;
+    monster.velocity.x = dx / thinkInterval;
+    monster.velocity.y = dy / thinkInterval;
+    if (dz !== 0) {
+        monster.velocity.z = dz / thinkInterval;
+    }
 }
 
 function moveToward(monster, targetPos, speed, game) {
