@@ -149,6 +149,17 @@ export class Physics {
                 entity.position.z = downTrace.endpos.z;
 
                 entity.onGround = downTrace.fraction < 1.0 && downTrace.plane && downTrace.plane.normal.z > 0.7;
+                entity.groundEntity = entity.onGround ? (downTrace.entity || null) : null;
+
+                // SV_Impact for step trace hit
+                if (trace.entity) {
+                    this.impact(entity, trace.entity);
+                }
+
+                // SV_TouchLinks
+                if (this.game && this.game.entities) {
+                    this.game.entities.touchTriggers(entity);
+                }
                 return;
             }
         }
@@ -162,10 +173,16 @@ export class Physics {
         if (trace.fraction < 1.0 && trace.plane) {
             if (trace.plane.normal.z > 0.7) {
                 entity.onGround = true;
+                entity.groundEntity = trace.entity || null;
                 entity.velocity.z = 0;
             } else {
                 // Slide along wall
                 this.clipVelocity(entity.velocity, trace.plane.normal, 1.0);
+            }
+
+            // SV_Impact for collision
+            if (trace.entity) {
+                this.impact(entity, trace.entity);
             }
         } else {
             // Check ground below
@@ -175,6 +192,12 @@ export class Physics {
                 hull
             );
             entity.onGround = groundTrace.fraction < 1.0 && groundTrace.plane && groundTrace.plane.normal.z > 0.7;
+            entity.groundEntity = entity.onGround ? (groundTrace.entity || null) : null;
+        }
+
+        // SV_TouchLinks
+        if (this.game && this.game.entities) {
+            this.game.entities.touchTriggers(entity);
         }
     }
 
@@ -199,19 +222,30 @@ export class Physics {
                 // Check if it's the floor
                 if (trace.plane.normal.z > 0.7) {
                     entity.onGround = true;
+                    entity.groundEntity = trace.entity || null;
                     entity.velocity.z = 0;
                 } else {
                     // Reflect velocity off wall
                     this.clipVelocity(entity.velocity, trace.plane.normal, 1.0);
+                    entity.groundEntity = null;
                 }
             }
 
-            // Trigger touch callback for wall collision
-            if (entity.touch) {
+            // SV_Impact - call touch on both colliding entities
+            if (trace.entity) {
+                this.impact(entity, trace.entity);
+            } else if (entity.touch) {
+                // Hit world geometry
                 entity.touch(entity, null, this.game, trace);
             }
         } else {
             entity.onGround = false;
+            entity.groundEntity = null;
+        }
+
+        // SV_TouchLinks
+        if (this.game && this.game.entities) {
+            this.game.entities.touchTriggers(entity);
         }
     }
 
@@ -224,10 +258,18 @@ export class Physics {
         if (trace.fraction < 1.0 && trace.plane) {
             this.clipVelocity(entity.velocity, trace.plane.normal, 1.0);
 
-            // Trigger touch callback for wall collision
-            if (entity.touch) {
+            // SV_Impact - call touch on both colliding entities
+            if (trace.entity) {
+                this.impact(entity, trace.entity);
+            } else if (entity.touch) {
+                // Hit world geometry
                 entity.touch(entity, null, this.game, trace);
             }
+        }
+
+        // SV_TouchLinks
+        if (this.game && this.game.entities) {
+            this.game.entities.touchTriggers(entity);
         }
     }
 
@@ -252,13 +294,35 @@ export class Physics {
                     entity.velocity.z = 0;
                     entity.moveType = 'none';
                     entity.onGround = true;
+                    entity.groundEntity = trace.entity || null;
                 }
             }
 
-            // Trigger touch callback for wall collision
-            if (entity.touch) {
+            // SV_Impact - call touch on both colliding entities
+            if (trace.entity) {
+                this.impact(entity, trace.entity);
+            } else if (entity.touch) {
+                // Hit world geometry
                 entity.touch(entity, null, this.game, trace);
             }
+        }
+
+        // SV_TouchLinks
+        if (this.game && this.game.entities) {
+            this.game.entities.touchTriggers(entity);
+        }
+    }
+
+    /**
+     * SV_Impact (sv_phys.c:170-188)
+     * Run touch functions for two colliding entities.
+     */
+    impact(entity1, entity2) {
+        if (entity1.touch && entity1.solid !== 'not') {
+            entity1.touch(entity1, entity2, this.game);
+        }
+        if (entity2.touch && entity2.solid !== 'not') {
+            entity2.touch(entity2, entity1, this.game);
         }
     }
 
@@ -291,32 +355,6 @@ export class Physics {
             const funcTrace = this.traceAgainstFuncEntities(start, end, hull, trace);
             if (funcTrace && funcTrace.fraction < trace.fraction) {
                 trace = funcTrace;
-            }
-
-            // Proximity-based touch trigger for doors (simpler than ray-box)
-            if (sourceEntity && sourceEntity.classname === 'player') {
-                for (const func of this.game.entities.funcs) {
-                    if (!func.active || !func.hull || !func.touch) continue;
-
-                    // Calculate center of func entity
-                    const centerX = func.position.x + (func.hull.mins.x + func.hull.maxs.x) / 2;
-                    const centerY = func.position.y + (func.hull.mins.y + func.hull.maxs.y) / 2;
-                    const centerZ = func.position.z + (func.hull.mins.z + func.hull.maxs.z) / 2;
-
-                    const dx = sourceEntity.position.x - centerX;
-                    const dy = sourceEntity.position.y - centerY;
-                    const dz = sourceEntity.position.z - centerZ;
-                    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-                    // Calculate trigger distance based on func size
-                    const sizeX = func.hull.maxs.x - func.hull.mins.x;
-                    const sizeY = func.hull.maxs.y - func.hull.mins.y;
-                    const triggerDist = Math.max(sizeX, sizeY) / 2 + 48;
-
-                    if (dist < triggerDist) {
-                        func.touch(func, sourceEntity, this.game);
-                    }
-                }
             }
         }
 

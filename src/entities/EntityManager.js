@@ -231,6 +231,39 @@ export class EntityManager {
         }
     }
 
+    /**
+     * SV_TouchLinks - Check if entity overlaps any triggers or func entities with touch callbacks.
+     * Called after entity movement completes (player, monsters, projectiles).
+     * In original Quake (sv_phys.c), this walks the areanode BSP tree.
+     * We use flat iteration over trigger and func entity lists.
+     */
+    touchTriggers(entity) {
+        if (!entity || !entity.active) return;
+
+        // Check trigger entities (trigger_once, trigger_multiple, trigger_hurt, etc.)
+        for (let i = 0; i < this.triggers.length; i++) {
+            const trigger = this.triggers[i];
+            if (!trigger.active || !trigger.touch) continue;
+            if (trigger === entity) continue;
+            if (trigger.solid !== 'trigger') continue;
+
+            if (this.entitiesOverlap(entity, trigger)) {
+                trigger.touch(trigger, entity, this.game);
+            }
+        }
+
+        // Check func entities with touch callbacks (doors, buttons)
+        for (let i = 0; i < this.funcs.length; i++) {
+            const func = this.funcs[i];
+            if (!func.active || !func.touch) continue;
+            if (func === entity) continue;
+
+            if (this.entitiesOverlap(entity, func)) {
+                func.touch(func, entity, this.game);
+            }
+        }
+    }
+
     entitiesOverlap(a, b) {
         const aHull = a.hull || { mins: { x: -16, y: -16, z: -24 }, maxs: { x: 16, y: 16, z: 32 } };
         const bHull = b.hull || { mins: { x: -16, y: -16, z: -24 }, maxs: { x: 16, y: 16, z: 32 } };

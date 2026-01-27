@@ -298,11 +298,6 @@ export class Game {
         // Entity updates
         if (this.entities) {
             this.entities.update(dt, this.time);
-
-            // Check player touching triggers
-            if (this.player) {
-                this.entities.checkTouches(this.player);
-            }
         }
     }
 

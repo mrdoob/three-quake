@@ -104,6 +104,9 @@ export class EntitySpawner {
             initializeMonsterPathing(this.game);
         }
 
+        // Link doors after all entities are spawned (original Quake: LinkDoors via nextthink)
+        this.linkDoors();
+
         console.log(`Spawned ${spawnCount} entities total${skipVisuals ? ' (demo mode - visuals skipped)' : ''}`);
     }
 
@@ -889,6 +892,14 @@ export class EntitySpawner {
         door.data.needsKey = (spawnflags & 8) || (spawnflags & 16);
         door.data.toggle = (spawnflags & 32) !== 0;
 
+        // Set key items like original Quake (self.items = IT_KEY1/IT_KEY2)
+        // IT_KEY1 (silver) = 131072, IT_KEY2 (gold) = 262144
+        if (spawnflags & 16) door.data.keyItems = 131072; // DOOR_SILVER_KEY
+        if (spawnflags & 8) door.data.keyItems = 262144;  // DOOR_GOLD_KEY
+
+        // Key doors always wait -1 (stay open) in original Quake
+        if (door.data.keyItems) door.data.wait = -1;
+
         // START_OPEN: Door starts in open position, "opens" to closed position
         if (spawnflags & 1) {
             // Move meshStartPos to open position BEFORE reversing direction
@@ -921,79 +932,106 @@ export class EntitySpawner {
             console.log(`START_OPEN door: starts at open position, will close when triggered`);
         }
 
+        // Original Quake: door_use delegates to owner → door_fire
         door.use = (self, activator, game) => {
-            const isStartOpen = (self.spawnflags & 1) !== 0;
-
-            if (self.data.toggle) {
-                // Toggle doors switch between open/closed
-                if (self.data.state === 'closed') {
-                    this.doorOpen(self, game);
-                } else if (self.data.state === 'open') {
-                    this.doorClose(self, game);
-                }
-            } else if (isStartOpen) {
-                // START_OPEN doors: trigger closes them, then they re-open after wait
-                if (self.data.state === 'open') {
-                    this.doorClose(self, game);
-                }
-            } else {
-                // Normal doors: trigger opens them
-                if (self.data.state === 'closed') {
-                    this.doorOpen(self, game);
-                }
-            }
+            const owner = self.data.doorOwner || self;
+            this.doorFire(owner, game);
         };
 
+        // Original Quake: door_touch handles messages, key checks, then delegates to door_use
         door.touch = (self, other, game) => {
             if (!other || other.classname !== 'player') return;
 
-            // Check key requirements (from doors.qc)
-            // DOOR_GOLD_KEY (8) requires IT_KEY2 (262144) = gold key
-            // DOOR_SILVER_KEY (16) requires IT_KEY1 (131072) = silver key
-            const spawnflags = self.spawnflags || 0;
-            if (spawnflags & 8) {
-                // DOOR_GOLD_KEY - requires gold key (IT_KEY2)
-                if (!(other.items & 262144)) { // IT_KEY2
-                    if (game.audio) {
-                        game.audio.playLocal('sound/misc/runekey.wav');
-                    }
-                    console.log('You need the gold key');
-                    return;
+            const owner = self.data.doorOwner || self;
+
+            // Cooldown check (original: self.owner.attack_finished > time)
+            if (game.time < (owner.data.attackFinished || 0)) return;
+            owner.data.attackFinished = game.time + 2;
+
+            // Show message if set (original: self.owner.message)
+            if (owner.message) {
+                if (game.showCenterPrint) {
+                    game.showCenterPrint(owner.message);
+                } else {
+                    console.log(owner.message);
+                }
+                if (game.audio) {
+                    game.audio.playLocal('sound/misc/talk.wav');
                 }
             }
-            if (spawnflags & 16) {
-                // DOOR_SILVER_KEY - requires silver key (IT_KEY1)
-                if (!(other.items & 131072)) { // IT_KEY1
+
+            // Key door check: items field on owner determines key requirement
+            // Original: if (!self.items) return; — key doors only open via touch with key
+            const ownerItems = owner.data.keyItems || 0;
+            if (!ownerItems) return; // Not a key door — proximity trigger handles opening
+
+            // Check if player has the required key
+            if ((ownerItems & other.items) !== ownerItems) {
+                // Player doesn't have the key
+                if (ownerItems & 131072) { // IT_KEY1 = silver key
                     if (game.audio) {
                         game.audio.playLocal('sound/misc/medkey.wav');
                     }
-                    console.log('You need the silver key');
-                    return;
+                    if (game.showCenterPrint) {
+                        game.showCenterPrint('You need the silver key');
+                    } else {
+                        console.log('You need the silver key');
+                    }
+                } else if (ownerItems & 262144) { // IT_KEY2 = gold key
+                    if (game.audio) {
+                        game.audio.playLocal('sound/misc/runekey.wav');
+                    }
+                    if (game.showCenterPrint) {
+                        game.showCenterPrint('You need the gold key');
+                    } else {
+                        console.log('You need the gold key');
+                    }
                 }
+                return;
             }
 
-            const isStartOpen = (self.spawnflags & 1) !== 0;
+            // Player has the key — consume it and open
+            other.items = other.items & ~ownerItems;
 
-            if (isStartOpen) {
-                // START_OPEN doors close when touched
-                if (self.data.state === 'open') {
-                    this.doorClose(self, game);
-                }
-            } else {
-                // Normal doors open when touched
-                if (self.data.state === 'closed') {
-                    this.doorOpen(self, game);
-                }
+            // Disable touch on this door and its enemy (original Quake behavior)
+            self.touch = null;
+            if (self.data.doorEnemy && self.data.doorEnemy !== self) {
+                self.data.doorEnemy.touch = null;
             }
+
+            this.doorFire(owner, game);
         };
 
         door.think = (self, game, dt) => {
             this.doorThink(self, game, dt);
         };
+
+        // Blocked callback - door damages blocking entity and reverses direction
+        // Original Quake: doors.qc door_blocked()
+        door.blocked = (self, other, game) => {
+            // Damage the blocking entity (T_Damage with door.dmg)
+            if (other.health !== undefined && other.health > 0 && self.data.dmg) {
+                game.dealDamage(other, self.data.dmg, self, self);
+            }
+
+            // Reverse door direction
+            if (self.data.state === 'closing') {
+                this.doorOpen(self, game);
+            } else if (self.data.state === 'opening') {
+                this.doorClose(self, game);
+            }
+        };
     }
 
     doorOpen(door, game) {
-        if (door.data.state === 'opening' || door.data.state === 'open') return;
+        // Original Quake door_go_up: if already going up, do nothing
+        if (door.data.state === 'opening') return;
+
+        // If already at top, reset wait timer (original: self.nextthink = self.ltime + self.wait)
+        if (door.data.state === 'open') {
+            door.data.closeTime = game.time + door.data.wait;
+            return;
+        }
 
         door.data.state = 'opening';
 
@@ -1039,8 +1077,10 @@ export class EntitySpawner {
             this.updateDoorPosition(door);
         } else if (door.data.state === 'open') {
             // Check if it's time to close (wait = -1 means stay open)
-            // Only normal doors auto-close; START_OPEN doors stay open after re-opening
-            if (!isStartOpen && door.data.wait >= 0 && game.time >= door.data.closeTime) {
+            // TOGGLE doors don't auto-close (original: door_hit_top returns early)
+            // START_OPEN doors stay open after re-opening
+            const isToggle = (door.spawnflags & 32) !== 0;
+            if (!isStartOpen && !isToggle && door.data.wait >= 0 && game.time >= door.data.closeTime) {
                 door.data.state = 'closing';
                 if (game.audio) {
                     game.audio.playPositioned('sound/doors/doormv1.wav', door.position);
@@ -1079,6 +1119,236 @@ export class EntitySpawner {
         }
     }
 
+    /**
+     * Link adjacent doors into groups (original Quake: LinkDoors in doors.qc)
+     * Adjacent doors (touching bounding boxes) are chained together and open/close as a unit.
+     * Non-targeted, non-keyed door groups spawn an invisible trigger field for proximity opening.
+     */
+    linkDoors() {
+        const funcs = this.game.entities.getCategory('func') || [];
+        const doors = funcs.filter(e => e.active && e.classname === 'func_door');
+
+        let linkedCount = 0;
+        let triggerCount = 0;
+
+        for (const door of doors) {
+            // Skip if already linked by another door
+            if (door.data.doorEnemy) continue;
+
+            // DOOR_DONT_LINK (spawnflag 4): don't link, self-reference
+            if (door.spawnflags & 4) {
+                door.data.doorOwner = door;
+                door.data.doorEnemy = door;
+                continue;
+            }
+
+            // Start a new chain with this door as master
+            const master = door;
+            let current = door;
+            current.data.doorOwner = master;
+
+            // Skip doors without hull (no BSP model)
+            if (!current.hull) {
+                current.data.doorEnemy = current;
+                continue;
+            }
+
+            // Combined bounds for the group
+            let cmins = { ...current.hull.mins };
+            let cmaxs = { ...current.hull.maxs };
+
+            // Propagate health/targetname/message to master (like original)
+            if (current.data.health) master.data.health = current.data.health;
+
+            // Build list of doors in this group (for transitive touching checks)
+            const chain = [master];
+
+            // Find all touching doors not yet linked (transitive: any door in chain can touch)
+            let foundMore = true;
+            while (foundMore) {
+                foundMore = false;
+                for (const candidate of doors) {
+                    if (candidate.data.doorEnemy) continue; // already linked
+                    if (candidate === master) continue;
+                    if (candidate.spawnflags & 4) continue; // DOOR_DONT_LINK
+
+                    // Check if candidate touches ANY door already in the chain
+                    let touches = false;
+                    for (const chainDoor of chain) {
+                        if (this.entitiesTouching(chainDoor, candidate)) {
+                            touches = true;
+                            break;
+                        }
+                    }
+                    if (!touches) continue;
+
+                    // Link: current.enemy = candidate
+                    current.data.doorEnemy = candidate;
+                    candidate.data.doorOwner = master;
+                    current = candidate;
+                    chain.push(candidate);
+
+                    // Propagate properties to master
+                    if (candidate.data.health) master.data.health = candidate.data.health;
+                    if (candidate.targetname) master.targetname = candidate.targetname;
+                    if (candidate.message) master.message = candidate.message;
+                    if (candidate.data.keyItems) master.data.keyItems = candidate.data.keyItems;
+
+                    // Expand combined bounds
+                    if (candidate.hull.mins.x < cmins.x) cmins.x = candidate.hull.mins.x;
+                    if (candidate.hull.mins.y < cmins.y) cmins.y = candidate.hull.mins.y;
+                    if (candidate.hull.mins.z < cmins.z) cmins.z = candidate.hull.mins.z;
+                    if (candidate.hull.maxs.x > cmaxs.x) cmaxs.x = candidate.hull.maxs.x;
+                    if (candidate.hull.maxs.y > cmaxs.y) cmaxs.y = candidate.hull.maxs.y;
+                    if (candidate.hull.maxs.z > cmaxs.z) cmaxs.z = candidate.hull.maxs.z;
+
+                    linkedCount++;
+                    foundMore = true;
+                    break; // restart search with expanded chain
+                }
+            }
+
+            // Close the chain: last door points back to master
+            current.data.doorEnemy = master;
+
+            // Solo doors also self-reference
+            if (!master.data.doorEnemy) {
+                master.data.doorEnemy = master;
+            }
+
+            // Determine if we should spawn a trigger field
+            // Original: shootable, targeted, or key doors don't get a trigger field
+            if (master.data.health) continue;
+            if (master.targetname) continue;
+            if (master.data.keyItems) continue; // key doors
+
+            // Spawn trigger field with expanded bounds
+            this.spawnDoorTriggerField(master, cmins, cmaxs);
+            triggerCount++;
+        }
+
+        if (linkedCount > 0 || triggerCount > 0) {
+            console.log(`LinkDoors: linked ${linkedCount} doors, spawned ${triggerCount} trigger fields`);
+        }
+    }
+
+    /**
+     * Check if two doors' bounding boxes touch (original Quake: EntitiesTouching)
+     * Uses absolute hull bounds (BSP model bounds are already in world space)
+     */
+    entitiesTouching(e1, e2) {
+        if (!e1.hull || !e2.hull) return false;
+
+        // BSP model hulls are in absolute world coordinates
+        if (e1.hull.mins.x > e2.hull.maxs.x) return false;
+        if (e1.hull.mins.y > e2.hull.maxs.y) return false;
+        if (e1.hull.mins.z > e2.hull.maxs.z) return false;
+        if (e1.hull.maxs.x < e2.hull.mins.x) return false;
+        if (e1.hull.maxs.y < e2.hull.mins.y) return false;
+        if (e1.hull.maxs.z < e2.hull.mins.z) return false;
+        return true;
+    }
+
+    /**
+     * Spawn an invisible trigger field around a door group (original Quake: spawn_field)
+     * Expands bounds by (60, 60, 8) units in each direction
+     */
+    spawnDoorTriggerField(master, cmins, cmaxs) {
+        const trigger = this.game.entities.spawn();
+        if (!trigger) return;
+
+        trigger.classname = 'door_trigger';
+        trigger.category = 'trigger';
+        trigger.position = { x: 0, y: 0, z: 0 };
+        trigger.moveType = 'none';
+        trigger.solid = 'trigger';
+
+        // Expand bounds by (60, 60, 8) like original Quake
+        trigger.hull = {
+            mins: {
+                x: cmins.x - 60,
+                y: cmins.y - 60,
+                z: cmins.z - 8
+            },
+            maxs: {
+                x: cmaxs.x + 60,
+                y: cmaxs.y + 60,
+                z: cmaxs.z + 8
+            }
+        };
+
+        // Store reference to master door
+        trigger.data.doorOwner = master;
+        master.data.triggerField = trigger;
+
+        trigger.touch = (self, other, game) => {
+            if (!other || other.classname !== 'player') return;
+            if (other.health <= 0) return;
+
+            // 1-second cooldown (original: self.attack_finished)
+            if (game.time < (self.data.attackFinished || 0)) return;
+            self.data.attackFinished = game.time + 1;
+
+            // Delegate to door_fire on the master
+            this.doorFire(self.data.doorOwner, game);
+        };
+
+        this.game.entities.addToCategory(trigger);
+    }
+
+    /**
+     * Fire all doors in a linked group (original Quake: door_fire)
+     * Opens or closes all doors in the chain simultaneously.
+     *
+     * In original Quake, door_fire always calls door_go_up (move to pos2).
+     * For START_OPEN doors, pos1/pos2 are swapped, so door_go_up effectively
+     * closes the door visually. Our code uses separate doorOpen/doorClose,
+     * so we must check START_OPEN to call the right one.
+     */
+    doorFire(master, game) {
+        if (!master) return;
+
+        // Navigate to the actual owner/master
+        const owner = master.data.doorOwner || master;
+
+        const isToggle = (owner.spawnflags & 32) !== 0;
+        const isStartOpen = (owner.spawnflags & 1) !== 0;
+
+        if (isToggle) {
+            // Original: if STATE_UP or STATE_TOP → door_go_down for all (reverse)
+            // For normal doors: 'opening' or 'open' means at/moving-to activated pos → reverse
+            // For START_OPEN: 'closing' or 'closed' means at/moving-to activated pos → reverse
+            const shouldReverse = isStartOpen
+                ? (owner.data.state === 'closing' || owner.data.state === 'closed')
+                : (owner.data.state === 'opening' || owner.data.state === 'open');
+
+            if (shouldReverse) {
+                let door = owner;
+                do {
+                    if ((door.spawnflags & 1)) {
+                        this.doorOpen(door, game);  // START_OPEN: reverse = re-open
+                    } else {
+                        this.doorClose(door, game); // Normal: reverse = close
+                    }
+                    door = door.data.doorEnemy;
+                } while (door && door !== owner);
+                return;
+            }
+        }
+
+        // Activate all doors in the chain
+        // Normal doors: activate = open. START_OPEN doors: activate = close.
+        let door = owner;
+        do {
+            if ((door.spawnflags & 1)) {
+                this.doorClose(door, game);  // START_OPEN: activate = close
+            } else {
+                this.doorOpen(door, game);   // Normal: activate = open
+            }
+            door = door.data.doorEnemy;
+        } while (door && door !== owner);
+    }
+
     updateDoorPosition(door) {
         const oldPos = { ...door.position };
         const progress = door.data.moveProgress;
@@ -1095,14 +1365,26 @@ export class EntitySpawner {
         const deltaZ = door.position.z - oldPos.z;
 
         // Move all entities standing on the door (SV_PushMove)
-        this.pushEntitiesOnMover(door, { x: deltaX, y: deltaY, z: deltaZ }, oldPos);
+        const success = this.pushEntitiesOnMover(door, { x: deltaX, y: deltaY, z: deltaZ }, oldPos);
+
+        if (!success) {
+            // Mover was rolled back by pushEntitiesOnMover — recalculate progress from position
+            door.data.moveProgress = 0;
+            const dx = door.position.x - start.x;
+            const dy = door.position.y - start.y;
+            const dz = door.position.z - start.z;
+            if (Math.abs(dir.x) > 0.5) door.data.moveProgress = dx / dir.x;
+            else if (Math.abs(dir.y) > 0.5) door.data.moveProgress = dy / dir.y;
+            else if (Math.abs(dir.z) > 0.5) door.data.moveProgress = dz / dir.z;
+        }
 
         // Update mesh position (add offset to original mesh position)
         if (door.mesh && door.data.meshStartPos) {
+            const p = door.data.moveProgress;
             door.mesh.position.set(
-                door.data.meshStartPos.x + dir.x * progress,
-                door.data.meshStartPos.y + dir.y * progress,
-                door.data.meshStartPos.z + dir.z * progress
+                door.data.meshStartPos.x + dir.x * p,
+                door.data.meshStartPos.y + dir.y * p,
+                door.data.meshStartPos.z + dir.z * p
             );
         }
         // Note: hull is not updated because Physics.js adds position to hull bounds
@@ -1408,14 +1690,19 @@ export class EntitySpawner {
         const deltaZ = plat.position.z - oldPos.z;
 
         // Move all entities standing on the platform (SV_PushMove)
-        this.pushEntitiesOnMover(plat, { x: 0, y: 0, z: deltaZ }, oldPos);
+        const success = this.pushEntitiesOnMover(plat, { x: 0, y: 0, z: deltaZ }, oldPos);
+
+        if (!success) {
+            // Mover was rolled back — recalculate progress from position
+            plat.data.moveProgress = start.z - plat.position.z;
+        }
 
         // Update mesh position
         if (plat.mesh && plat.data.meshStartPos) {
             plat.mesh.position.set(
                 plat.data.meshStartPos.x,
                 plat.data.meshStartPos.y,
-                plat.data.meshStartPos.z - progress
+                plat.data.meshStartPos.z - plat.data.moveProgress
             );
         }
         // Note: hull is not updated because Physics.js adds position to hull bounds
@@ -1430,7 +1717,7 @@ export class EntitySpawner {
      * @param {Object} oldPos - Mover's position BEFORE it moved (for detection)
      */
     pushEntitiesOnMover(mover, delta, oldPos) {
-        if (delta.x === 0 && delta.y === 0 && delta.z === 0) return;
+        if (delta.x === 0 && delta.y === 0 && delta.z === 0) return true;
 
         // Collect all pushable entities: player, monsters, items
         const entities = [];
@@ -1458,14 +1745,56 @@ export class EntitySpawner {
             mover.position.z = oldPos.z;
         }
 
+        // Track which entities were moved and their old positions for rollback
+        const moved = [];
+
         for (const ent of entities) {
             const onGroundEntity = ent.onGround && ent.groundEntity === mover;
             const onMoverPosition = this.isEntityOnPlatform(ent, mover);
 
             if (onGroundEntity || onMoverPosition) {
+                const entOldPos = { ...ent.position };
+
                 ent.position.x += delta.x;
                 ent.position.y += delta.y;
                 ent.position.z += delta.z;
+
+                moved.push({ entity: ent, oldPos: entOldPos });
+
+                // Check if entity is now stuck in world geometry (SV_PushMove stuck check)
+                // hullPointContents returns CONTENTS values: EMPTY=-1, SOLID=-2, etc.
+                if (this.game.physics && this.game.physics.collision) {
+                    const hull = ent.hull || { mins: { x: -16, y: -16, z: -24 }, maxs: { x: 16, y: 16, z: 32 } };
+                    const hullIndex = this.game.physics.collision.getHullIndex(hull);
+                    const contents = this.game.physics.collision.hullPointContents(0, ent.position, hullIndex);
+
+                    if (contents === -2) { // CONTENTS_SOLID
+                        // Entity is stuck - rollback all moved entities
+                        for (const m of moved) {
+                            m.entity.position.x = m.oldPos.x;
+                            m.entity.position.y = m.oldPos.y;
+                            m.entity.position.z = m.oldPos.z;
+
+                            if (m.entity.mesh && m.entity.classname !== 'player') {
+                                m.entity.mesh.position.set(m.entity.position.x, m.entity.position.y, m.entity.position.z);
+                            }
+                        }
+
+                        // Restore mover to old position (rollback the move)
+                        if (oldPos) {
+                            mover.position.x = oldPos.x;
+                            mover.position.y = oldPos.y;
+                            mover.position.z = oldPos.z;
+                        }
+
+                        // Call blocked callback on the mover
+                        if (mover.blocked) {
+                            mover.blocked(mover, ent, this.game);
+                        }
+
+                        return false; // Blocked
+                    }
+                }
 
                 // Update mesh position for monsters/items
                 if (ent.mesh && ent.classname !== 'player') {
@@ -1484,6 +1813,8 @@ export class EntitySpawner {
             mover.position.y = currentPos.y;
             mover.position.z = currentPos.z;
         }
+
+        return true; // Success
     }
 
     isEntityOnPlatform(entity, plat) {

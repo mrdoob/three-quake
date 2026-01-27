@@ -74,6 +74,11 @@ export class PlayerMovement {
 
         // Calculate view roll
         this.calcViewRoll(player);
+
+        // SV_TouchLinks - check trigger overlaps after movement
+        if (this.physics.game && this.physics.game.entities) {
+            this.physics.game.entities.touchTriggers(player);
+        }
     }
 
     /**
