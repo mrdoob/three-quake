@@ -162,8 +162,12 @@ export class HUD {
         const containerWidth = this.container.clientWidth;
         const containerHeight = this.container.clientHeight;
 
-        // Calculate scale to fit 320px wide status bar, capped at 2x
-        this.scale = Math.min(2, Math.max(1, Math.floor(containerWidth / 320)));
+        // Calculate scale to fit 320px wide status bar
+        // Cap at 2x on desktop, ~1.3x on mobile (1.5x smaller)
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                         (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+        const maxScale = isMobile ? 1.33 : 2;
+        this.scale = Math.min(maxScale, Math.max(1, containerWidth / 320));
 
         // Set canvas size
         this.canvas.width = 320 * this.scale;
