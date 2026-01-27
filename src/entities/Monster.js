@@ -1892,14 +1892,14 @@ function checkBottom(monster, game) {
 }
 
 function checkBottomReal(mins, maxs, monster, game) {
-    const hull = monster.hull;
     // Midpoint must be within 2*STEPSIZE of bottom
     const midX = (mins.x + maxs.x) * 0.5;
     const midY = (mins.y + maxs.y) * 0.5;
     const start = { x: midX, y: midY, z: mins.z };
     const stop = { x: midX, y: midY, z: mins.z - 2 * STEPSIZE };
 
-    const trace = game.physics.traceLine(start, stop, hull);
+    // C uses SV_Move(start, vec3_origin, vec3_origin, stop, ...) — point hull
+    const trace = game.physics.traceLine(start, stop);
     if (trace.fraction === 1.0) return false;
 
     const mid = trace.endpos.z;
@@ -1912,7 +1912,7 @@ function checkBottomReal(mins, maxs, monster, game) {
             const cStart = { x: sx, y: sy, z: mins.z };
             const cStop = { x: sx, y: sy, z: mins.z - 2 * STEPSIZE };
 
-            const cTrace = game.physics.traceLine(cStart, cStop, hull);
+            const cTrace = game.physics.traceLine(cStart, cStop);
             if (cTrace.fraction === 1.0 || mid - cTrace.endpos.z > STEPSIZE) {
                 return false;
             }
@@ -2083,7 +2083,7 @@ function newChaseDir(monster, enemyPos, dist, game) {
     }
 
     // Randomly swap X/Y priority
-    if ((Math.random() < 0.25) || Math.abs(deltay) > Math.abs(deltax)) {
+    if ((Math.random() < 0.5) || Math.abs(deltay) > Math.abs(deltax)) {
         const tmp = d[1];
         d[1] = d[2];
         d[2] = tmp;
