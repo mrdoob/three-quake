@@ -370,11 +370,6 @@ function startMenuLoop() {
 }
 
 async function startNewGame() {
-    // On mobile, request fullscreen
-    if (isMobile) {
-        await requestMobileFullscreen();
-    }
-
     // Stop menu animation
     if (menuAnimationId) {
         cancelAnimationFrame(menuAnimationId);
@@ -739,8 +734,8 @@ async function onDemoKeyPress(e) {
 
     console.log('Demo interrupted - showing menu overlay');
 
-    // On mobile, request fullscreen on first interaction
-    if (isMobile && e.type === 'touchstart') {
+    // On mobile, go fullscreen landscape when interacting with demo
+    if (isMobile) {
         await requestMobileFullscreen();
     }
 
