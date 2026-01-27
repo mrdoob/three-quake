@@ -1218,8 +1218,10 @@ export class Game {
             const modelPath = precache[ent.modelIndex];
             if (!modelPath) continue;
 
-            // Skip the map model (index 1, ends with .bsp)
-            if (modelPath.endsWith('.bsp')) continue;
+            // Skip the world model (index 1, e.g. "maps/e1m1.bsp")
+            // Note: Don't skip all .bsp models - ammo/health boxes use BSP format
+            // (e.g. maps/b_shell0.bsp, maps/b_bh25.bsp)
+            if (ent.modelIndex === 1) continue;
 
             // Skip entities with EF_NODRAW (server.h:177)
             if (ent.effects & EF.NODRAW) continue;
@@ -1508,6 +1510,15 @@ export class Game {
                     return;
                 }
                 mesh = this.renderer.bspRenderer.createBrushModelMesh(modelIndex);
+                if (!mesh) return;
+            } else if (modelPath.endsWith('.bsp')) {
+                // BSP item model (ammo boxes, health packs: maps/b_shell0.bsp, etc.)
+                if (!this.pak || !this.renderer.bspRenderer) return;
+                const bspData = this.pak.get(modelPath);
+                if (!bspData) return;
+                const bsp = new BSPLoader();
+                bsp.load(bspData);
+                mesh = this.renderer.bspRenderer.createBrushModelMesh(0, bsp);
                 if (!mesh) return;
             } else {
                 // Regular model (MDL or SPR)
