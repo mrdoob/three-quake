@@ -424,6 +424,7 @@ export async function createMonster(entityManager, classname, position, angles, 
     // Attack state machine (ai.qc: AS_STRAIGHT/AS_SLIDING/AS_MELEE/AS_MISSILE)
     monster.data.attackState = 'straight';  // 'straight', 'melee', 'missile', 'sliding'
     monster.data.lefty = false;  // Strafe direction for AS_SLIDING
+    monster.data.flags = 0;  // FL_PARTIALGROUND = 1
 
     monster.think = monsterThink;
     monster.nextThink = game.time + 0.1;
@@ -806,7 +807,8 @@ function monsterWalk(monster, game) {
         const def = monster.data.monsterDef;
         // Patrol at slower speed (original Quake uses 8-10 units/frame, ~80-100 units/sec)
         const walkSpeed = Math.min(def.speed * 0.4, 100);
-        moveToward(monster, monster.movetarget.position, walkSpeed, game);
+        faceEntity(monster, monster.movetarget);
+        moveToGoal(monster, walkSpeed * 0.1, game);
 
         // Check if reached path_corner (within 16 units)
         const dx = monster.movetarget.position.x - monster.position.x;
@@ -845,7 +847,8 @@ function monsterWalk(monster, game) {
         }
     } else if (monster.goalEntity) {
         // Legacy goalEntity support (non-path_corner)
-        moveToward(monster, monster.goalEntity.position, 100, game);
+        faceEntity(monster, monster.goalEntity);
+        moveToGoal(monster, 10, game);
     } else {
         // No goal, just stand
         monster.state = MONSTER_STATE.STAND;
@@ -929,7 +932,8 @@ function monsterRun(monster, game) {
     if (def.flying && monster.classname === 'monster_wizard') {
         moveWizard(monster, monster.enemy.position, def.speed, game);
     } else {
-        moveToward(monster, monster.enemy.position, def.speed, game);
+        faceEntity(monster, monster.enemy);
+        moveToGoal(monster, def.speed * 0.1, game);
     }
 
     // Play idle sounds occasionally
@@ -1845,42 +1849,351 @@ function canSeeEntity(monster, target, game, checkAngle = true) {
     return trace.fraction === 1.0;
 }
 
+// ============================================================================
+// sv_move.c port — trace-based monster movement with 8-direction pathfinding
+// ============================================================================
+
+const STEPSIZE = 18;
+const DI_NODIR = -1;
+
+/**
+ * SV_CheckBottom — Returns false if any part of the bottom of the entity
+ * is off an edge that is not a staircase.
+ */
+function checkBottom(monster, game) {
+    const hull = monster.hull;
+    const mins = {
+        x: monster.position.x + hull.mins.x,
+        y: monster.position.y + hull.mins.y,
+        z: monster.position.z + hull.mins.z
+    };
+    const maxs = {
+        x: monster.position.x + hull.maxs.x,
+        y: monster.position.y + hull.maxs.y,
+        z: monster.position.z + hull.maxs.z
+    };
+
+    // If all corners are over solid ground, pass quickly
+    const checkZ = mins.z - 1;
+    for (let x = 0; x <= 1; x++) {
+        for (let y = 0; y <= 1; y++) {
+            const point = {
+                x: x ? maxs.x : mins.x,
+                y: y ? maxs.y : mins.y,
+                z: checkZ
+            };
+            if (game.physics.pointContents(point) !== -2) { // CONTENTS_SOLID = -2
+                // Need real check
+                return checkBottomReal(mins, maxs, monster, game);
+            }
+        }
+    }
+    return true; // All corners solid
+}
+
+function checkBottomReal(mins, maxs, monster, game) {
+    const hull = monster.hull;
+    // Midpoint must be within 2*STEPSIZE of bottom
+    const midX = (mins.x + maxs.x) * 0.5;
+    const midY = (mins.y + maxs.y) * 0.5;
+    const start = { x: midX, y: midY, z: mins.z };
+    const stop = { x: midX, y: midY, z: mins.z - 2 * STEPSIZE };
+
+    const trace = game.physics.traceLine(start, stop, hull);
+    if (trace.fraction === 1.0) return false;
+
+    const mid = trace.endpos.z;
+
+    // Corners must be within STEPSIZE of the midpoint height
+    for (let x = 0; x <= 1; x++) {
+        for (let y = 0; y <= 1; y++) {
+            const sx = x ? maxs.x : mins.x;
+            const sy = y ? maxs.y : mins.y;
+            const cStart = { x: sx, y: sy, z: mins.z };
+            const cStop = { x: sx, y: sy, z: mins.z - 2 * STEPSIZE };
+
+            const cTrace = game.physics.traceLine(cStart, cStop, hull);
+            if (cTrace.fraction === 1.0 || mid - cTrace.endpos.z > STEPSIZE) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/**
+ * SV_movestep — Core movement validation.
+ * Tries to move monster by (moveX, moveY). Returns true if move succeeded.
+ * Directly updates monster.position on success.
+ */
+function monsterMoveStep(monster, moveX, moveY, game) {
+    const def = monster.data.monsterDef;
+    const hull = monster.hull;
+    const oldOrigin = { ...monster.position };
+
+    const newOrg = {
+        x: monster.position.x + moveX,
+        y: monster.position.y + moveY,
+        z: monster.position.z
+    };
+
+    // Flying/swimming monsters
+    if (def.flying || def.swimming) {
+        for (let i = 0; i < 2; i++) {
+            const tryPos = {
+                x: monster.position.x + moveX,
+                y: monster.position.y + moveY,
+                z: monster.position.z
+            };
+
+            // First attempt: adjust Z toward enemy
+            if (i === 0 && monster.enemy) {
+                const dz = monster.position.z - monster.enemy.position.z;
+                if (dz > 40) tryPos.z -= 8;
+                if (dz < 30) tryPos.z += 8;
+            }
+
+            const trace = game.physics.traceLine(monster.position, tryPos, hull);
+            if (trace.fraction === 1.0) {
+                // Swimming monster must stay in water
+                if (def.swimming) {
+                    const contents = game.physics.pointContents(trace.endpos);
+                    if (contents === -1) { // CONTENTS_EMPTY
+                        return false; // Would leave water
+                    }
+                }
+                monster.position.x = trace.endpos.x;
+                monster.position.y = trace.endpos.y;
+                monster.position.z = trace.endpos.z;
+                return true;
+            }
+
+            // Only retry without Z adjust if we have an enemy
+            if (!monster.enemy) break;
+        }
+        return false;
+    }
+
+    // Ground monsters: push down from step height above wished position
+    newOrg.z += STEPSIZE;
+    const end = { x: newOrg.x, y: newOrg.y, z: newOrg.z - STEPSIZE * 2 };
+
+    let trace = game.physics.traceLine(newOrg, end, hull);
+
+    if (trace.allsolid) return false;
+
+    if (trace.startsolid) {
+        // Try without the step-up
+        newOrg.z -= STEPSIZE;
+        trace = game.physics.traceLine(newOrg, end, hull);
+        if (trace.allsolid || trace.startsolid) return false;
+    }
+
+    if (trace.fraction === 1.0) {
+        // Walked off an edge
+        if (monster.data.flags & 1) { // FL_PARTIALGROUND
+            // Monster had floor pulled out, let it fall
+            monster.position.x += moveX;
+            monster.position.y += moveY;
+            monster.onGround = false;
+            return true;
+        }
+        return false;
+    }
+
+    // Move to trace end position
+    monster.position.x = trace.endpos.x;
+    monster.position.y = trace.endpos.y;
+    monster.position.z = trace.endpos.z;
+
+    // Check for dangling corners
+    if (!checkBottom(monster, game)) {
+        if (monster.data.flags & 1) { // FL_PARTIALGROUND
+            return true;
+        }
+        // Revert
+        monster.position.x = oldOrigin.x;
+        monster.position.y = oldOrigin.y;
+        monster.position.z = oldOrigin.z;
+        return false;
+    }
+
+    // Clear partial ground flag if set
+    if (monster.data.flags & 1) {
+        monster.data.flags &= ~1;
+    }
+    monster.onGround = true;
+
+    return true;
+}
+
+/**
+ * SV_StepDirection — Turns to the movement direction, and walks the
+ * current distance if facing it.
+ */
+function stepDirection(monster, yaw, dist, game) {
+    monster.data.idealYaw = yaw;
+    changeYaw(monster);
+
+    const yawRad = yaw * Math.PI / 180;
+    const moveX = Math.cos(yawRad) * dist;
+    const moveY = Math.sin(yawRad) * dist;
+
+    const oldOrigin = { ...monster.position };
+    if (monsterMoveStep(monster, moveX, moveY, game)) {
+        const delta = anglemod(monster.angles.yaw - monster.data.idealYaw);
+        if (delta > 45 && delta < 315) {
+            // Not turned far enough, revert position
+            monster.position.x = oldOrigin.x;
+            monster.position.y = oldOrigin.y;
+            monster.position.z = oldOrigin.z;
+        }
+        return true;
+    }
+    return false;
+}
+
+/**
+ * SV_NewChaseDir — 8-direction fallback pathfinding.
+ * Tries diagonal, axis-aligned, old direction, then sweeps all 8 directions.
+ */
+function newChaseDir(monster, enemyPos, dist, game) {
+    const olddir = anglemod(Math.floor(monster.data.idealYaw / 45) * 45);
+    const turnaround = anglemod(olddir - 180);
+
+    const deltax = enemyPos.x - monster.position.x;
+    const deltay = enemyPos.y - monster.position.y;
+
+    const d = [0, 0, 0];
+    if (deltax > 10) d[1] = 0;
+    else if (deltax < -10) d[1] = 180;
+    else d[1] = DI_NODIR;
+
+    if (deltay < -10) d[2] = 270;
+    else if (deltay > 10) d[2] = 90;
+    else d[2] = DI_NODIR;
+
+    // Try direct route (diagonal)
+    if (d[1] !== DI_NODIR && d[2] !== DI_NODIR) {
+        let tdir;
+        if (d[1] === 0) tdir = d[2] === 90 ? 45 : 315;
+        else tdir = d[2] === 90 ? 135 : 215;
+
+        if (tdir !== turnaround && stepDirection(monster, tdir, dist, game)) return;
+    }
+
+    // Randomly swap X/Y priority
+    if ((Math.random() < 0.25) || Math.abs(deltay) > Math.abs(deltax)) {
+        const tmp = d[1];
+        d[1] = d[2];
+        d[2] = tmp;
+    }
+
+    if (d[1] !== DI_NODIR && d[1] !== turnaround &&
+        stepDirection(monster, d[1], dist, game)) return;
+
+    if (d[2] !== DI_NODIR && d[2] !== turnaround &&
+        stepDirection(monster, d[2], dist, game)) return;
+
+    // No direct path — try old direction
+    if (olddir !== DI_NODIR && stepDirection(monster, olddir, dist, game)) return;
+
+    // Sweep all 8 directions (randomly CW or CCW)
+    if (Math.random() < 0.5) {
+        for (let tdir = 0; tdir <= 315; tdir += 45) {
+            if (tdir !== turnaround && stepDirection(monster, tdir, dist, game)) return;
+        }
+    } else {
+        for (let tdir = 315; tdir >= 0; tdir -= 45) {
+            if (tdir !== turnaround && stepDirection(monster, tdir, dist, game)) return;
+        }
+    }
+
+    // Last resort: turnaround
+    if (turnaround !== DI_NODIR && stepDirection(monster, turnaround, dist, game)) return;
+
+    // Can't move at all
+    monster.data.idealYaw = olddir;
+
+    if (!checkBottom(monster, game)) {
+        monster.data.flags = (monster.data.flags || 0) | 1; // FL_PARTIALGROUND
+    }
+}
+
+/**
+ * SV_CloseEnough — Check if monster is close enough to goal entity.
+ */
+function closeEnough(monster, goal, dist) {
+    if (!goal || !goal.position) return false;
+    const hull = monster.hull;
+    // absmin/absmax = origin + mins/maxs
+    const monMins = {
+        x: monster.position.x + hull.mins.x,
+        y: monster.position.y + hull.mins.y,
+        z: monster.position.z + hull.mins.z
+    };
+    const monMaxs = {
+        x: monster.position.x + hull.maxs.x,
+        y: monster.position.y + hull.maxs.y,
+        z: monster.position.z + hull.maxs.z
+    };
+
+    // Goal bbox — use hull if available, otherwise treat as point
+    const gHull = goal.hull || { mins: { x: 0, y: 0, z: 0 }, maxs: { x: 0, y: 0, z: 0 } };
+    const goalMins = {
+        x: goal.position.x + gHull.mins.x,
+        y: goal.position.y + gHull.mins.y,
+        z: goal.position.z + gHull.mins.z
+    };
+    const goalMaxs = {
+        x: goal.position.x + gHull.maxs.x,
+        y: goal.position.y + gHull.maxs.y,
+        z: goal.position.z + gHull.maxs.z
+    };
+
+    for (const axis of ['x', 'y', 'z']) {
+        if (goalMins[axis] > monMaxs[axis] + dist) return false;
+        if (goalMaxs[axis] < monMins[axis] - dist) return false;
+    }
+    return true;
+}
+
+/**
+ * SV_MoveToGoal — Entry point for monster movement.
+ * Port of SV_MoveToGoal from sv_move.c.
+ * dist = speed * 0.1 (distance to move per think interval)
+ */
+function moveToGoal(monster, dist, game) {
+    const def = monster.data.monsterDef;
+
+    // Must be on ground, flying, or swimming
+    if (!monster.onGround && !def.flying && !def.swimming) return;
+
+    // Initialize flags if needed
+    if (monster.data.flags === undefined) monster.data.flags = 0;
+
+    // If close enough to enemy, don't move
+    const goal = monster.enemy || monster.goalEntity;
+    if (monster.enemy && closeEnough(monster, goal, dist)) return;
+
+    // 25% chance: pick new chase direction (prevents stuck loops)
+    // Otherwise: try stepping in current ideal_yaw direction
+    if (Math.random() < 0.25 || !stepDirection(monster, monster.data.idealYaw, dist, game)) {
+        const enemyPos = goal ? goal.position : monster.position;
+        newChaseDir(monster, enemyPos, dist, game);
+    }
+
+    // Clear velocity — position was moved directly by the trace functions
+    monster.velocity.x = 0;
+    monster.velocity.y = 0;
+}
+
 function moveToward(monster, targetPos, speed, game) {
     const dx = targetPos.x - monster.position.x;
     const dy = targetPos.y - monster.position.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist > 0) {
-        // Check if stuck (position hasn't changed much despite having velocity)
-        if (monster.data.lastPos) {
-            const movedX = monster.position.x - monster.data.lastPos.x;
-            const movedY = monster.position.y - monster.data.lastPos.y;
-            const movedDist = Math.sqrt(movedX * movedX + movedY * movedY);
-
-            // If we should have moved but didn't, we're stuck
-            const expectedMove = speed * 0.1; // Based on think interval
-            if (expectedMove > 5 && movedDist < expectedMove * 0.1) {
-                monster.data.stuckCount = (monster.data.stuckCount || 0) + 1;
-
-                // Try to unstick by adding random sideways movement
-                if (monster.data.stuckCount > 3) {
-                    const sideAngle = (Math.random() > 0.5 ? 90 : -90) * Math.PI / 180;
-                    const cos = Math.cos(sideAngle);
-                    const sin = Math.sin(sideAngle);
-                    const newDx = dx * cos - dy * sin;
-                    const newDy = dx * sin + dy * cos;
-                    monster.velocity.x = (newDx / dist) * speed;
-                    monster.velocity.y = (newDy / dist) * speed;
-                    monster.data.stuckCount = 0;
-                    monster.data.lastPos = { ...monster.position };
-                    return;
-                }
-            } else {
-                monster.data.stuckCount = 0;
-            }
-        }
-        monster.data.lastPos = { ...monster.position };
-
         monster.velocity.x = (dx / dist) * speed;
         monster.velocity.y = (dy / dist) * speed;
 
