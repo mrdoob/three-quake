@@ -19,6 +19,7 @@ export class BSPRenderer {
         this.lightmapBuilder = null;
         this.animatedMaterials = [];
         this.waterMaterials = [];
+        this.brushModelAnimations = new Map(); // modelIndex → [{materialIndex, primaryTextures[], altTextures[]}]
         this.time = 0;
 
         // Load WAD files for external textures
@@ -553,8 +554,44 @@ export class BSPRenderer {
 
         const geometry = this.buildGeometry(model.firstFace, model.numFaces);
 
-        const mesh = new THREE.Mesh(geometry, this.materials);
+        // Check if this brush model uses any animated textures.
+        // If so, clone those materials so we can switch between primary/alternate
+        // sequences per-entity (for buttons etc.) without affecting the world.
+        const animatedFaceMaterials = this.findAnimatedMaterialsForModel(model);
+
+        let materials;
+        if (animatedFaceMaterials.length > 0) {
+            // Clone the entire materials array so this mesh has independent materials
+            materials = this.materials.map(m => m);
+            const animInfos = [];
+
+            for (const info of animatedFaceMaterials) {
+                // Clone the material for this brush model.
+                // ShaderMaterial.clone() shares uniforms by reference,
+                // so we must deep-clone uniforms for independent texture control.
+                const cloned = info.material.clone();
+                if (info.material.isShaderMaterial && info.material.uniforms) {
+                    cloned.uniforms = THREE.UniformsUtils.clone(info.material.uniforms);
+                }
+                materials[info.materialArrayIndex] = cloned;
+
+                animInfos.push({
+                    materialArrayIndex: info.materialArrayIndex,
+                    clonedMaterial: cloned,
+                    primaryTextures: info.primaryTextures,
+                    altTextures: info.altTextures,
+                    showingAlt: false
+                });
+            }
+
+            this.brushModelAnimations.set(modelIndex, animInfos);
+        } else {
+            materials = this.materials;
+        }
+
+        const mesh = new THREE.Mesh(geometry, materials);
         mesh.name = `bsp_model_${modelIndex}`;
+        mesh.userData.brushModelIndex = modelIndex;
 
         // NOTE: Do NOT set position from model.origin here!
         // In Quake, brush model vertices are stored in world coordinates.
@@ -710,10 +747,29 @@ export class BSPRenderer {
                 const frameIndex = Math.floor(this.time * 5) % anim.textures.length;
                 if (frameIndex !== anim.frame) {
                     anim.frame = frameIndex;
-                    // Update material's texture
-                    if (anim.material.map !== anim.textures[frameIndex]) {
-                        anim.material.map = anim.textures[frameIndex];
-                        anim.material.needsUpdate = true;
+                    // Update world material's texture (primary sequence)
+                    this.setMaterialDiffuse(anim.material, anim.textures[frameIndex]);
+                }
+            }
+
+            // Update brush model cloned materials (alternate or primary cycling)
+            if (anim.altTextures) {
+                const materialArrayIndex = this.materialIndexMap.get(anim.index);
+                for (const [, animInfos] of this.brushModelAnimations) {
+                    for (const info of animInfos) {
+                        if (info.materialArrayIndex !== materialArrayIndex) continue;
+
+                        if (info.showingAlt) {
+                            // Cycle through alternate sequence
+                            const altFrameIndex = info.altTextures.length > 1
+                                ? Math.floor(this.time * 5) % info.altTextures.length
+                                : 0;
+                            this.setMaterialDiffuse(info.clonedMaterial, info.altTextures[altFrameIndex]);
+                        } else if (anim.textures.length > 1) {
+                            // Cycle through primary sequence (keep in sync with world)
+                            const frameIndex = Math.floor(this.time * 5) % anim.textures.length;
+                            this.setMaterialDiffuse(info.clonedMaterial, anim.textures[frameIndex]);
+                        }
                     }
                 }
             }
@@ -751,26 +807,41 @@ export class BSPRenderer {
 
     /**
      * Build the texture sequence for an animated texture
+     * Quake has two sequences per animated texture:
+     * - Primary: +0name, +1name, +2name... (time-based animation)
+     * - Alternate: +aname, +bname, +cname... (used when entity frame == 1)
+     * R_TextureAnimation() in gl_rsurf.c selects between them based on currententity->frame
      */
     buildAnimatedTextureSequence(anim) {
-        // Quake uses two naming conventions:
-        // +0texture, +1texture, +2texture... (numeric)
-        // or +atexture, +btexture... (alternate frames triggered by entity state)
-        const sequences = [];
+        const primarySequence = [];
+        const altSequence = [];
 
-        // Try numeric sequence first (0-9)
+        // Collect primary sequence (0-9)
         for (let i = 0; i <= 9; i++) {
             const frameName = `+${i}${anim.sequenceName}`;
             const frameTexIndex = this.findTextureByName(frameName);
             if (frameTexIndex !== -1 && this.textures.has(frameTexIndex)) {
-                sequences.push(this.textures.get(frameTexIndex));
+                primarySequence.push(this.textures.get(frameTexIndex));
             }
         }
 
-        // If we found frames, use them
-        if (sequences.length > 1) {
-            anim.textures = sequences;
+        // Collect alternate sequence (a-j)
+        const altChars = 'abcdefghij';
+        for (let i = 0; i < altChars.length; i++) {
+            const frameName = `+${altChars[i]}${anim.sequenceName}`;
+            const frameTexIndex = this.findTextureByName(frameName);
+            if (frameTexIndex !== -1 && this.textures.has(frameTexIndex)) {
+                altSequence.push(this.textures.get(frameTexIndex));
+            }
         }
+
+        // Use primary sequence for time-based animation
+        if (primarySequence.length > 1) {
+            anim.textures = primarySequence;
+        }
+
+        // Store alternate sequence for entity-frame-based switching
+        anim.altTextures = altSequence.length > 0 ? altSequence : null;
     }
 
     /**
@@ -785,6 +856,89 @@ export class BSPRenderer {
             }
         }
         return -1;
+    }
+
+    /**
+     * Find animated materials used by a brush model's faces
+     * Returns array of {materialArrayIndex, material, primaryTextures[], altTextures[]}
+     */
+    findAnimatedMaterialsForModel(model) {
+        const result = [];
+        const seen = new Set();
+
+        for (let i = 0; i < model.numFaces; i++) {
+            const faceIndex = model.firstFace + i;
+            const face = this.bsp.faces[faceIndex];
+            const texinfo = this.bsp.texinfo[face.texinfoNum];
+            const textureIndex = texinfo.textureIndex;
+
+            if (seen.has(textureIndex)) continue;
+            seen.add(textureIndex);
+
+            // Check if this texture is in the animated materials list
+            const anim = this.animatedMaterials.find(a => a.index === textureIndex);
+            if (!anim) continue;
+
+            // Ensure sequences are built
+            if (anim.textures.length === 1 && anim.sequenceName) {
+                this.buildAnimatedTextureSequence(anim);
+            }
+
+            // Only include if there's an alternate sequence
+            if (!anim.altTextures || anim.altTextures.length === 0) continue;
+
+            const materialArrayIndex = this.materialIndexMap.get(textureIndex);
+            result.push({
+                materialArrayIndex,
+                material: this.materials[materialArrayIndex],
+                primaryTextures: anim.textures,
+                altTextures: anim.altTextures
+            });
+        }
+
+        return result;
+    }
+
+    /**
+     * Set brush model frame (switches between primary and alternate texture sequences)
+     * Original Quake: R_TextureAnimation checks currententity->frame
+     * frame 0 = primary sequence (+0, +1, +2...), frame 1 = alternate sequence (+a, +b, +c...)
+     * @param {THREE.Mesh} mesh - The brush model mesh
+     * @param {number} frame - 0 for primary, 1 for alternate
+     */
+    setBrushModelFrame(mesh, frame) {
+        const modelIndex = mesh.userData.brushModelIndex;
+        if (modelIndex === undefined) return;
+
+        const animInfos = this.brushModelAnimations.get(modelIndex);
+        if (!animInfos) return;
+
+        for (const info of animInfos) {
+            info.showingAlt = (frame === 1 && info.altTextures.length > 0);
+
+            const textures = info.showingAlt ? info.altTextures : info.primaryTextures;
+
+            // Set first frame of the selected sequence immediately;
+            // time-based cycling within the sequence is handled by update()
+            this.setMaterialDiffuse(info.clonedMaterial, textures[0]);
+        }
+    }
+
+    /**
+     * Set the diffuse texture on a material, handling both ShaderMaterial (uniforms)
+     * and standard materials (.map)
+     */
+    setMaterialDiffuse(material, texture) {
+        if (!texture) return;
+
+        if (material.isShaderMaterial && material.uniforms && material.uniforms.diffuseMap) {
+            if (material.uniforms.diffuseMap.value !== texture) {
+                material.uniforms.diffuseMap.value = texture;
+            }
+        } else if (material.map !== texture) {
+            material.map = texture;
+            material.needsUpdate = true;
+        }
     }
 
     // Get leaf containing a point (for PVS culling)

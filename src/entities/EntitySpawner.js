@@ -1205,6 +1205,13 @@ export class EntitySpawner {
         button.data.state = 'up';  // Moving to pressed position
         button.data.activator = activator;
 
+        // Switch to alternate texture sequence (frame 1)
+        // Original Quake: QuakeC sets self.frame = 1 in button_fire
+        button.frame = 1;
+        if (button.mesh && game.renderer && game.renderer.bspRenderer) {
+            game.renderer.bspRenderer.setBrushModelFrame(button.mesh, 1);
+        }
+
         if (game.audio) {
             game.audio.playPositioned('sound/buttons/switch21.wav', button.position);
         }
@@ -1238,6 +1245,13 @@ export class EntitySpawner {
             if (button.data.moveProgress <= 0) {
                 button.data.moveProgress = 0;
                 button.data.state = 'bottom';  // Ready for next press
+
+                // Switch back to primary texture sequence (frame 0)
+                // Original Quake: QuakeC sets self.frame = 0 in button_return
+                button.frame = 0;
+                if (button.mesh && this.game.renderer && this.game.renderer.bspRenderer) {
+                    this.game.renderer.bspRenderer.setBrushModelFrame(button.mesh, 0);
+                }
             }
             this.updateButtonPosition(button);
         }
