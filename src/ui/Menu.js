@@ -986,8 +986,8 @@ export class Menu {
         // Check if within menu bounds based on current state
         const itemHeight = 20;  // Menu items are 20 pixels apart
         let startY = 32;
-        let startX = 54;  // Left edge of menu items
-        let endX = 200;   // Right edge of menu items
+        let startX = 54;  // Left edge of menu items (cursor position)
+        let endX = 296;   // Right edge of menu items (72 + 224 max graphic width)
         let maxItems = this.getMaxItems();
 
         // Adjust for specific menu states
