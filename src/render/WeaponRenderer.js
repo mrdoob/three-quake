@@ -34,6 +34,7 @@ export class WeaponRenderer {
         // Loading state
         this.modelsLoaded = false;
         this.pendingWeapon = null;
+        this.lastWeaponFrame = -1;
     }
 
     attachToCamera(camera) {
@@ -133,8 +134,13 @@ export class WeaponRenderer {
 
         if (!this.weaponMesh || !player) return;
 
-        // Fire animation
-        if (this.firing) {
+        // Set weapon frame directly from player state (like original Quake view.c)
+        // view->frame = cl.stats[STAT_WEAPONFRAME]
+        if (player.weaponFrame !== undefined && player.weaponFrame !== this.lastWeaponFrame) {
+            this.lastWeaponFrame = player.weaponFrame;
+            this.aliasRenderer.setFrame(this.weaponMesh, player.weaponFrame);
+        } else if (this.firing) {
+            // Fallback: client-side fire animation (non-demo gameplay)
             this.fireTime += deltaTime;
             if (this.fireTime < 0.15) {
                 this.aliasRenderer.updateAnimation(this.weaponMesh, deltaTime);
@@ -145,10 +151,8 @@ export class WeaponRenderer {
         }
 
         // Calculate bob based on velocity (like Quake)
-        const speed = Math.sqrt(
-            player.velocity.x * player.velocity.x +
-            player.velocity.y * player.velocity.y
-        );
+        const vel = player.velocity || { x: 0, y: 0, z: 0 };
+        const speed = Math.sqrt(vel.x * vel.x + vel.y * vel.y);
 
         if (player.onGround && speed > 10) {
             const cycle = this.weaponTime * 10;

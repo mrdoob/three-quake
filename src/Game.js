@@ -1611,6 +1611,14 @@ export class Game {
                     this.player.position.y = viewState.origin.y;
                     this.player.position.z = viewState.origin.z;
                 }
+
+                // Sync velocity and onGround for weapon bob
+                const dv = this.demoPlayer.velocity;
+                if (!this.player.velocity) this.player.velocity = { x: 0, y: 0, z: 0 };
+                this.player.velocity.x = dv.x;
+                this.player.velocity.y = dv.y;
+                this.player.velocity.z = dv.z;
+                this.player.onGround = this.demoPlayer.onGround;
             }
 
             // Sync demo entity positions to visual meshes
@@ -1626,6 +1634,12 @@ export class Game {
         }
         if (this.renderer) {
             this.renderer.update(frameTime);
+
+            // Sync demo stats to player before weapon update so currentWeapon is set
+            if (this.demoPlayer && this.player) {
+                this.syncDemoStatsToPlayer();
+                this.renderer.updateWeapon(frameTime, this.player);
+            }
         }
 
         // Update audio listener position for spatial audio during demo playback
@@ -1677,7 +1691,8 @@ export class Game {
         const stats = this.demoPlayer.stats;
         // Import STAT indices
         const STAT = {
-            HEALTH: 0, ARMOR: 4, AMMO: 3,
+            HEALTH: 0, WEAPON: 2, AMMO: 3, ARMOR: 4,
+            WEAPONFRAME: 5,
             SHELLS: 6, NAILS: 7, ROCKETS: 8, CELLS: 9,
             ACTIVEWEAPON: 10,
             TOTALSECRETS: 11, TOTALMONSTERS: 12,
@@ -1697,6 +1712,9 @@ export class Game {
 
         // Sync active weapon (for ammo display)
         this.player.currentWeapon = this.weaponBitmaskToIndex(stats[STAT.ACTIVEWEAPON]);
+
+        // Sync weapon frame for viewmodel animation
+        this.player.weaponFrame = stats[STAT.WEAPONFRAME] || 0;
 
         // Sync level stats
         this.player.totalSecrets = stats[STAT.TOTALSECRETS];

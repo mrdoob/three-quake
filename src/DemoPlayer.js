@@ -1110,22 +1110,30 @@ export class DemoPlayer {
         this.onGround = !!(bits & 0x0400);
 
         // SU_WEAPONFRAME (1<<12)
-        if (bits & 0x1000) this.readMsgByte();
+        if (bits & 0x1000) {
+            this.stats[STAT.WEAPONFRAME] = this.readMsgByte();
+        } else {
+            this.stats[STAT.WEAPONFRAME] = 0;
+        }
 
         // SU_ARMOR (1<<13)
-        if (bits & 0x2000) this.readMsgByte();
+        if (bits & 0x2000) {
+            this.stats[STAT.ARMOR] = this.readMsgByte();
+        }
 
-        // SU_WEAPON (1<<14)
-        if (bits & 0x4000) this.readMsgByte();
+        // SU_WEAPON (1<<14) - weapon model precache index
+        if (bits & 0x4000) {
+            this.stats[STAT.WEAPON] = this.readMsgByte();
+        }
 
         // Always sent: health (short), ammo, shells, nails, rockets, cells (bytes), active weapon (byte)
-        this.readMsgShort();  // health
-        this.readMsgByte();   // ammo
-        this.readMsgByte();   // shells
-        this.readMsgByte();   // nails
-        this.readMsgByte();   // rockets
-        this.readMsgByte();   // cells
-        this.readMsgByte();   // active weapon
+        this.stats[STAT.HEALTH] = this.readMsgShort();
+        this.stats[STAT.AMMO] = this.readMsgByte();
+        this.stats[STAT.SHELLS] = this.readMsgByte();
+        this.stats[STAT.NAILS] = this.readMsgByte();
+        this.stats[STAT.ROCKETS] = this.readMsgByte();
+        this.stats[STAT.CELLS] = this.readMsgByte();
+        this.stats[STAT.ACTIVEWEAPON] = this.readMsgByte();
     }
 
     /**
