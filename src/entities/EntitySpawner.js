@@ -1095,7 +1095,7 @@ export class EntitySpawner {
         const deltaZ = door.position.z - oldPos.z;
 
         // Move all entities standing on the door (SV_PushMove)
-        this.pushEntitiesOnMover(door, { x: deltaX, y: deltaY, z: deltaZ });
+        this.pushEntitiesOnMover(door, { x: deltaX, y: deltaY, z: deltaZ }, oldPos);
 
         // Update mesh position (add offset to original mesh position)
         if (door.mesh && door.data.meshStartPos) {
@@ -1396,7 +1396,7 @@ export class EntitySpawner {
     }
 
     updatePlatPosition(plat) {
-        const oldZ = plat.position.z;
+        const oldPos = { ...plat.position };
         const progress = plat.data.moveProgress;
         const start = plat.data.startPos || { x: 0, y: 0, z: 0 };
 
@@ -1405,10 +1405,10 @@ export class EntitySpawner {
         plat.position.y = start.y;
         plat.position.z = start.z - progress;
 
-        const deltaZ = plat.position.z - oldZ;
+        const deltaZ = plat.position.z - oldPos.z;
 
         // Move all entities standing on the platform (SV_PushMove)
-        this.pushEntitiesOnMover(plat, { x: 0, y: 0, z: deltaZ });
+        this.pushEntitiesOnMover(plat, { x: 0, y: 0, z: deltaZ }, oldPos);
 
         // Update mesh position
         if (plat.mesh && plat.data.meshStartPos) {
@@ -1427,8 +1427,9 @@ export class EntitySpawner {
      * on the pusher or overlapping its bounding box.
      * @param {Object} mover - The moving brush entity (door/plat/train)
      * @param {Object} delta - Movement delta {x, y, z}
+     * @param {Object} oldPos - Mover's position BEFORE it moved (for detection)
      */
-    pushEntitiesOnMover(mover, delta) {
+    pushEntitiesOnMover(mover, delta, oldPos) {
         if (delta.x === 0 && delta.y === 0 && delta.z === 0) return;
 
         // Collect all pushable entities: player, monsters, items
@@ -1448,6 +1449,15 @@ export class EntitySpawner {
             if (item.active && item.position) entities.push(item);
         }
 
+        // Use old position for detection: the mover has already moved,
+        // so we temporarily restore its position for the overlap check
+        const currentPos = { ...mover.position };
+        if (oldPos) {
+            mover.position.x = oldPos.x;
+            mover.position.y = oldPos.y;
+            mover.position.z = oldPos.z;
+        }
+
         for (const ent of entities) {
             const onGroundEntity = ent.onGround && ent.groundEntity === mover;
             const onMoverPosition = this.isEntityOnPlatform(ent, mover);
@@ -1462,10 +1472,17 @@ export class EntitySpawner {
                     ent.mesh.position.set(ent.position.x, ent.position.y, ent.position.z);
                 }
 
-                if (onMoverPosition && !onGroundEntity) {
+                if (!onGroundEntity) {
                     ent.groundEntity = mover;
                 }
             }
+        }
+
+        // Restore current position
+        if (oldPos) {
+            mover.position.x = currentPos.x;
+            mover.position.y = currentPos.y;
+            mover.position.z = currentPos.z;
         }
     }
 
@@ -1666,7 +1683,7 @@ export class EntitySpawner {
         }
 
         // Move all entities standing on train (SV_PushMove)
-        this.pushEntitiesOnMover(train, { x: deltaX, y: deltaY, z: deltaZ });
+        this.pushEntitiesOnMover(train, { x: deltaX, y: deltaY, z: deltaZ }, oldPos);
     }
 
     setupRotating(rotating, entData) {
