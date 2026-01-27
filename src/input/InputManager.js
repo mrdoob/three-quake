@@ -278,7 +278,7 @@ export class InputManager {
             up: this.moveInput.up,
             jump: jump,
             attack: attack,
-            use: this.isPressed('use'),
+            use: this.isPressed('use') || this.isPressed('jump'),
             alwaysRun: this.alwaysRun
         };
     }
