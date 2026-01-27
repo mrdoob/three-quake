@@ -16,8 +16,6 @@ https://mrdoob.github.io/three-quake/
 - **Tab** - Debug overlay
 - **~** - Console
 - **Escape** - Menu
-- **F5** - Quick save
-- **F9** - Quick load
 
 ## Features
 
@@ -29,7 +27,6 @@ https://mrdoob.github.io/three-quake/
 - 14 monster types with AI
 - Collision detection
 - Spatial audio
-- Save/load system
 
 ## Assets
 
