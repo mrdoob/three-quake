@@ -1094,22 +1094,8 @@ export class EntitySpawner {
         const deltaY = door.position.y - oldPos.y;
         const deltaZ = door.position.z - oldPos.z;
 
-        // Move entities standing on the door (like original Quake SV_PushMove)
-        if ((deltaX !== 0 || deltaY !== 0 || deltaZ !== 0) && this.game.player) {
-            const player = this.game.player;
-            // Check if player is on this door (groundEntity or position-based)
-            const onGroundEntity = player.onGround && player.groundEntity === door;
-            const onDoorPosition = this.isEntityOnPlatform(player, door);
-
-            if (onGroundEntity || onDoorPosition) {
-                player.position.x += deltaX;
-                player.position.y += deltaY;
-                player.position.z += deltaZ;
-                if (onDoorPosition && !onGroundEntity) {
-                    player.groundEntity = door;
-                }
-            }
-        }
+        // Move all entities standing on the door (SV_PushMove)
+        this.pushEntitiesOnMover(door, { x: deltaX, y: deltaY, z: deltaZ });
 
         // Update mesh position (add offset to original mesh position)
         if (door.mesh && door.data.meshStartPos) {
@@ -1421,23 +1407,8 @@ export class EntitySpawner {
 
         const deltaZ = plat.position.z - oldZ;
 
-        // Move entities standing on the platform
-        // Original Quake SV_PushMove checks: (ent->v.flags & FL_ONGROUND) && groundentity == pusher
-        if (deltaZ !== 0 && this.game.player) {
-            const player = this.game.player;
-            // Primary check: groundEntity matches this platform (like original Quake)
-            const onGroundEntity = player.onGround && player.groundEntity === plat;
-            // Fallback: position-based detection for edge cases
-            const onPlatformPosition = this.isEntityOnPlatform(player, plat);
-
-            if (onGroundEntity || onPlatformPosition) {
-                player.position.z += deltaZ;
-                // Update groundEntity reference if we moved the player
-                if (onPlatformPosition && !onGroundEntity) {
-                    player.groundEntity = plat;
-                }
-            }
-        }
+        // Move all entities standing on the platform (SV_PushMove)
+        this.pushEntitiesOnMover(plat, { x: 0, y: 0, z: deltaZ });
 
         // Update mesh position
         if (plat.mesh && plat.data.meshStartPos) {
@@ -1448,6 +1419,54 @@ export class EntitySpawner {
             );
         }
         // Note: hull is not updated because Physics.js adds position to hull bounds
+    }
+
+    /**
+     * Push all entities standing on a mover (SV_PushMove from sv_phys.c)
+     * Original Quake iterates ALL entities and pushes any that are standing
+     * on the pusher or overlapping its bounding box.
+     * @param {Object} mover - The moving brush entity (door/plat/train)
+     * @param {Object} delta - Movement delta {x, y, z}
+     */
+    pushEntitiesOnMover(mover, delta) {
+        if (delta.x === 0 && delta.y === 0 && delta.z === 0) return;
+
+        // Collect all pushable entities: player, monsters, items
+        const entities = [];
+
+        if (this.game.player) {
+            entities.push(this.game.player);
+        }
+
+        const monsters = this.game.entities.getCategory('monster') || [];
+        for (const m of monsters) {
+            if (m.active && m.position) entities.push(m);
+        }
+
+        const items = this.game.entities.getCategory('item') || [];
+        for (const item of items) {
+            if (item.active && item.position) entities.push(item);
+        }
+
+        for (const ent of entities) {
+            const onGroundEntity = ent.onGround && ent.groundEntity === mover;
+            const onMoverPosition = this.isEntityOnPlatform(ent, mover);
+
+            if (onGroundEntity || onMoverPosition) {
+                ent.position.x += delta.x;
+                ent.position.y += delta.y;
+                ent.position.z += delta.z;
+
+                // Update mesh position for monsters/items
+                if (ent.mesh && ent.classname !== 'player') {
+                    ent.mesh.position.set(ent.position.x, ent.position.y, ent.position.z);
+                }
+
+                if (onMoverPosition && !onGroundEntity) {
+                    ent.groundEntity = mover;
+                }
+            }
+        }
     }
 
     isEntityOnPlatform(entity, plat) {
@@ -1646,23 +1665,8 @@ export class EntitySpawner {
             train.mesh.position.set(train.position.x, train.position.y, train.position.z);
         }
 
-        // Move player standing on train (like original Quake SV_PushMove)
-        if ((deltaX !== 0 || deltaY !== 0 || deltaZ !== 0) && this.game.player) {
-            const player = this.game.player;
-            // Primary check: groundEntity matches this train
-            const onGroundEntity = player.onGround && player.groundEntity === train;
-            // Fallback: position-based detection
-            const onTrainPosition = this.isEntityOnPlatform(player, train);
-
-            if (onGroundEntity || onTrainPosition) {
-                player.position.x += deltaX;
-                player.position.y += deltaY;
-                player.position.z += deltaZ;
-                if (onTrainPosition && !onGroundEntity) {
-                    player.groundEntity = train;
-                }
-            }
-        }
+        // Move all entities standing on train (SV_PushMove)
+        this.pushEntitiesOnMover(train, { x: deltaX, y: deltaY, z: deltaZ });
     }
 
     setupRotating(rotating, entData) {

@@ -577,21 +577,26 @@ function monsterThink(monster, game) {
         }
     }
 
+    // Clear cached attack animation name when leaving ATTACK state
+    if (monster.state !== MONSTER_STATE.ATTACK) {
+        monster.data.attackAnimName = null;
+    }
+
     switch (monster.state) {
         case MONSTER_STATE.STAND:
-            setAnimation(monster, 'stand', game);
+            setAnimation(monster, getStateAnimName(monster, 'stand'), game);
             monsterStand(monster, game);
             break;
         case MONSTER_STATE.WALK:
-            setAnimation(monster, 'walk', game);
+            setAnimation(monster, getStateAnimName(monster, 'walk'), game);
             monsterWalk(monster, game);
             break;
         case MONSTER_STATE.RUN:
-            setAnimation(monster, 'run', game);
+            setAnimation(monster, getStateAnimName(monster, 'run'), game);
             monsterRun(monster, game);
             break;
         case MONSTER_STATE.ATTACK:
-            setAnimation(monster, 'attack', game);
+            setAnimation(monster, getAttackAnimName(monster), game);
             monsterAttack(monster, game);
             break;
         case MONSTER_STATE.PAIN:
@@ -599,6 +604,128 @@ function monsterThink(monster, game) {
             monsterPain(monster, game);
             break;
     }
+}
+
+/**
+ * Map generic state names to the actual MDL frame prefixes per monster.
+ * Most monsters use "stand", "walk", "run" directly, but some don't:
+ *  - wizard: hover (stand/walk), fly (run)
+ *  - knight: runb (run)
+ *  - soldier: prowl_ (walk)
+ *  - tarbaby: walk (stand — no dedicated stand frames)
+ */
+function getStateAnimName(monster, state) {
+    const cls = monster.classname;
+
+    if (state === 'stand') {
+        if (cls === 'monster_wizard') return 'hover';
+        if (cls === 'monster_tarbaby') return 'walk';
+    } else if (state === 'walk') {
+        if (cls === 'monster_wizard') return 'hover';
+        if (cls === 'monster_army') return 'prowl_';
+    } else if (state === 'run') {
+        if (cls === 'monster_wizard') return 'fly';
+        if (cls === 'monster_knight') return 'runb';
+    }
+
+    return state;
+}
+
+/**
+ * Resolve the correct MDL animation name for a monster's current attack.
+ *
+ * The MDL frame names vary per monster (e.g. ogre uses "shoot" for grenade,
+ * wizard uses "magatt", soldier uses "shoot"). The AliasRenderer groups
+ * frames by name prefix, so we need to return the exact prefix that matches
+ * the MDL frame names for each monster+attackType combination.
+ *
+ * The result is cached in monster.data.attackAnimName so random choices
+ * (hell_knight magic variant, zombie throw variant) are stable per attack.
+ * Cleared when leaving ATTACK state.
+ */
+function getAttackAnimName(monster) {
+    // Return cached name if already resolved for this attack
+    if (monster.data.attackAnimName) return monster.data.attackAnimName;
+
+    const attackType = monster.data.attackType;
+    const cls = monster.classname;
+    let name;
+
+    switch (cls) {
+        case 'monster_army':       // soldier.mdl: shoot1-9
+            name = 'shoot'; break;
+
+        case 'monster_ogre':
+            if (attackType === 'chainsaw_swing') { name = 'swing'; break; }   // swing1-14
+            if (attackType === 'chainsaw_smash') { name = 'smash'; break; }   // smash1-14
+            name = 'shoot'; break;  // shoot1-6 (grenade)
+
+        case 'monster_wizard':     // wizard.mdl: magatt1-13
+            name = 'magatt'; break;
+
+        case 'monster_hell_knight': {
+            if (attackType === 'melee') {
+                // hknight has slice, smash, w_attack - pick randomly like QC
+                const r = Math.random();
+                if (r < 0.33) name = 'slice';
+                else if (r < 0.66) name = 'smash';
+                else name = 'w_attack';
+                break;
+            }
+            if (attackType === 'knight_charge') { name = 'char_a'; break; }
+            // Ranged magic: magica, magicb, magicc - pick randomly
+            const magicR = Math.random();
+            if (magicR < 0.33) name = 'magica';
+            else if (magicR < 0.66) name = 'magicb';
+            else name = 'magicc';
+            break;
+        }
+
+        case 'monster_knight':
+            if (attackType === 'knight_charge') { name = 'runattack'; break; } // runattack1-11
+            name = 'attackb'; break;  // attackb1-10 (standing melee)
+
+        case 'monster_demon1':
+            if (attackType === 'leap') { name = 'leap'; break; }    // leap1-12
+            name = 'attacka'; break;  // attacka1-15 (melee claw)
+
+        case 'monster_dog':
+            if (attackType === 'leap') { name = 'leap'; break; }    // leap1-9
+            name = 'attack'; break;   // attack1-8
+
+        case 'monster_zombie': {
+            // zombie.qc: random choice of atta, attb, attc
+            const zombieR = Math.random();
+            if (zombieR < 0.33) name = 'atta';
+            else if (zombieR < 0.66) name = 'attb';
+            else name = 'attc';
+            break;
+        }
+
+        case 'monster_tarbaby':    // tarbaby.mdl: jump1-6
+            name = 'jump'; break;
+
+        case 'monster_shambler':
+            if (attackType === 'smash') { name = 'smash'; break; }        // smash1-11
+            if (attackType === 'claw_right') { name = 'swingr'; break; }  // swingr1-9
+            if (attackType === 'claw_left') { name = 'swingl'; break; }   // swingl1-9
+            name = 'magic'; break;  // magic1-15 (lightning)
+
+        case 'monster_enforcer':   // enforcer.mdl: attack1-10
+            name = 'attack'; break;
+
+        case 'monster_shalrath':   // shalrath.mdl: attack1-11
+            name = 'attack'; break;
+
+        case 'monster_fish':       // fish.mdl: attack1-?
+            name = 'attack'; break;
+
+        default:
+            name = 'attack'; break;
+    }
+
+    monster.data.attackAnimName = name;
+    return name;
 }
 
 function setAnimation(monster, animName, game) {
@@ -1344,38 +1471,82 @@ function executeLeapAttack(monster, game) {
     }
 }
 
-// Soldier attack with leading shots (soldier.qc:army_fire)
+// Soldier attack with traced bullets (soldier.qc:army_fire → W_FireShotgun logic)
+// Original: FireBullets(4, dir, '0.1 0.1 0') — 4 bullets, 0.1 spread, 4 damage each
 function executeSoldierAttack(monster, game) {
     const def = monster.data.monsterDef;
     const enemy = monster.enemy;
     if (!enemy) return;
 
-    // Soldier fires behind player's velocity (soldier.qc:army_fire)
-    // dir = en.origin - en.velocity*0.2
-    const leadFactor = 0.2;
-    const targetX = enemy.position.x - (enemy.velocity?.x || 0) * leadFactor;
-    const targetY = enemy.position.y - (enemy.velocity?.y || 0) * leadFactor;
-    const targetZ = enemy.position.z + 22 - (enemy.velocity?.z || 0) * leadFactor;
-
     const startZ = monster.position.z + (def.viewHeight || 25);
+    const start = { x: monster.position.x, y: monster.position.y, z: startZ };
 
-    // Trace to target
-    const trace = game.physics.traceLine(
-        { x: monster.position.x, y: monster.position.y, z: startZ },
-        { x: targetX, y: targetY, z: targetZ }
-    );
+    // Direction to enemy center mass
+    const targetX = enemy.position.x;
+    const targetY = enemy.position.y;
+    const targetZ = enemy.position.z + 22;
 
-    // FireBullets(4, dir, '0.1 0.1 0') - 4 bullets with 0.1 spread
-    // Apply each bullet with spread
+    const dirX = targetX - start.x;
+    const dirY = targetY - start.y;
+    const dirZ = targetZ - start.z;
+    const dirLen = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+
+    if (dirLen === 0) return;
+
+    // Normalize fire direction
+    const fwdX = dirX / dirLen;
+    const fwdY = dirY / dirLen;
+    const fwdZ = dirZ / dirLen;
+
+    // Compute right and up vectors from fire direction
+    // Simple cross product: right = forward × world_up, up = right × forward
+    const upWorldZ = 1;
+    let rightX = fwdY * upWorldZ;
+    let rightY = -fwdX * upWorldZ;
+    let rightZ = 0;
+    const rightLen = Math.sqrt(rightX * rightX + rightY * rightY + rightZ * rightZ);
+    if (rightLen > 0) {
+        rightX /= rightLen;
+        rightY /= rightLen;
+        rightZ /= rightLen;
+    }
+    // Up = right × forward
+    const upX = rightY * fwdZ - rightZ * fwdY;
+    const upY = rightZ * fwdX - rightX * fwdZ;
+    const upZ = rightX * fwdY - rightY * fwdX;
+
+    // Fire 4 bullets with crandom()*0.1 spread on right and up axes
     const bulletCount = 4;
+    const bulletDamage = 4; // 4 damage per bullet (original Quake)
     for (let i = 0; i < bulletCount; i++) {
-        // Check if bullet hits (simplified - use trace result with random spread)
-        if (trace.fraction > 0.95 || (trace.entity && trace.entity === enemy)) {
-            // Apply spread - 10% chance to miss per bullet at range
-            const hitChance = 0.9 - (distanceTo(monster, enemy) / 5000);
-            if (Math.random() < hitChance) {
-                game.dealDamage(enemy, def.damage, monster);
-            }
+        const spreadRight = (Math.random() * 2 - 1) * 0.1;
+        const spreadUp = (Math.random() * 2 - 1) * 0.1;
+
+        const shotDirX = fwdX + rightX * spreadRight + upX * spreadUp;
+        const shotDirY = fwdY + rightY * spreadRight + upY * spreadUp;
+        const shotDirZ = fwdZ + rightZ * spreadRight + upZ * spreadUp;
+
+        // Trace each bullet individually (2048 range like original)
+        const endPoint = {
+            x: start.x + shotDirX * 2048,
+            y: start.y + shotDirY * 2048,
+            z: start.z + shotDirZ * 2048
+        };
+
+        const trace = game.physics.traceLine(start, endPoint);
+
+        if (trace.entity && trace.entity.health !== undefined) {
+            game.dealDamage(trace.entity, bulletDamage, monster);
+        }
+
+        // Impact effect at hit point
+        if (trace.fraction < 1.0 && game.effects) {
+            const hitPos = {
+                x: start.x + (endPoint.x - start.x) * trace.fraction,
+                y: start.y + (endPoint.y - start.y) * trace.fraction,
+                z: start.z + (endPoint.z - start.z) * trace.fraction
+            };
+            game.effects.impact(hitPos, trace?.plane?.normal, 2);
         }
     }
 
@@ -1992,18 +2163,19 @@ function monsterDie(monster, attacker, game) {
 
 /**
  * Spawn/Tarbaby explosion on death (tarbaby.qc:tbaby_die)
- * Spawn explodes dealing 40 damage in 120 radius
+ * Spawn explodes dealing 40 damage, radius = damage + 40 = 80
  */
 function tarbabyExplode(monster, game) {
     const def = monster.data.monsterDef;
     const damage = def.explosionDamage || 40;
-    const radius = def.explosionRadius || 120;
+    const radius = damage + 40; // Original Quake: radius = damage + 40
     const center = monster.position;
 
-    // Deal splash damage to nearby entities
+    // Deal splash damage to nearby entities (T_RadiusDamage from combat.qc)
+    // Original: points = 0.5 * vlen(org - targ.origin), damage = damage - points
     const checkEntities = [...game.entities.players, ...game.entities.monsters];
     for (const entity of checkEntities) {
-        if (!entity.active || entity === monster) continue;
+        if (!entity.active) continue;
 
         const dx = entity.position.x - center.x;
         const dy = entity.position.y - center.y;
@@ -2011,8 +2183,8 @@ function tarbabyExplode(monster, game) {
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
         if (dist < radius) {
-            const falloff = 1 - (dist / radius);
-            const splashDamage = Math.floor(damage * falloff);
+            const points = 0.5 * dist;
+            const splashDamage = Math.floor(damage - points);
             if (splashDamage > 0) {
                 game.dealDamage(entity, splashDamage, monster);
             }
@@ -2127,17 +2299,118 @@ function spawnMonsterProjectile(monster, game, damage) {
     let projectileType = 'fireball';
 
     if (monster.classname === 'monster_wizard') {
-        speed = 600;
-        projectileType = 'w_spike'; // Scrag spit
+        // Wizard fires two staggered spikes (wizard.qc:Wiz_FastFire)
+        game.entities.remove(projectile); // Release unused pre-spawned entity
+        spawnWizardProjectiles(monster, game, damage);
+        return;
     } else if (monster.classname === 'monster_hell_knight') {
         speed = 300;
         projectileType = 'k_spike'; // Death Knight magic
-        // Death Knight fires 3 projectiles in a spread
+        game.entities.remove(projectile); // Release unused pre-spawned entity
+        // Death Knight fires 6 projectiles in a spread
         spawnHKnightProjectiles(monster, game, damage, speed, projectileType);
         return; // Early return since we spawn multiple
     } else if (monster.classname === 'monster_shalrath') {
-        speed = 400;
-        projectileType = 'v_spike'; // Vore ball (would be homing in full impl)
+        // Vore homing missile (shalrath.qc:ShalMissile)
+        speed = (game.skill === 3) ? 350 : 250;
+        projectileType = 'v_spike';
+
+        projectile.classname = projectileType;
+        projectile.category = 'projectile';
+        projectile.moveType = 'fly';
+        projectile.solid = 'bbox';
+        projectile.hull = {
+            mins: { x: -4, y: -4, z: -4 },
+            maxs: { x: 4, y: 4, z: 4 }
+        };
+
+        // Spawn offset: z+10 (not z+32)
+        const voreStartZ = monster.position.z + 10;
+        const voreDx = monster.enemy.position.x - monster.position.x;
+        const voreDy = monster.enemy.position.y - monster.position.y;
+        const voreDz = (monster.enemy.position.z + 22) - voreStartZ;
+        const voreDist = Math.sqrt(voreDx * voreDx + voreDy * voreDy + voreDz * voreDz);
+
+        if (voreDist === 0) { game.entities.remove(projectile); return; }
+
+        projectile.position = {
+            x: monster.position.x,
+            y: monster.position.y,
+            z: voreStartZ
+        };
+
+        projectile.velocity = {
+            x: (voreDx / voreDist) * speed,
+            y: (voreDy / voreDist) * speed,
+            z: (voreDz / voreDist) * speed
+        };
+
+        projectile.data = {
+            damage: damage,
+            owner: monster,
+            target: monster.enemy,
+            spawnTime: game.time,
+            isHoming: true,
+            homingStartTime: game.time + Math.max(0.1, voreDist * 0.002),
+            homingSpeed: speed
+        };
+
+        // Touch callback — 110 direct damage to zombies, normal damage otherwise
+        projectile.touch = (proj, other, g, trace) => {
+            if (other && other === proj.data.owner) return;
+            if (other && other.health !== undefined) {
+                const dmg = (other.classname === 'monster_zombie') ? 110 : proj.data.damage;
+                g.dealDamage(other, dmg, proj.data.owner);
+            }
+            if (g.effects && trace) {
+                g.effects.spawnExplosion(proj.position, 0.6);
+            }
+            g.entities.remove(proj);
+            g.physics.removeEntity(proj);
+        };
+
+        // Think callback — straight flight then hard-reset homing (shalrath.qc:ShalHome)
+        projectile.think = (proj, g) => {
+            if (g.time - proj.data.spawnTime > 6.0) {
+                if (g.effects) g.effects.spawnExplosion(proj.position, 0.3);
+                g.entities.remove(proj);
+                g.physics.removeEntity(proj);
+                return;
+            }
+
+            // Only home after initial straight flight period
+            if (g.time >= proj.data.homingStartTime && proj.data.target && proj.data.target.health > 0) {
+                const target = proj.data.target;
+                const tdx = target.position.x - proj.position.x;
+                const tdy = target.position.y - proj.position.y;
+                const tdz = (target.position.z + 22) - proj.position.z;
+                const tdist = Math.sqrt(tdx * tdx + tdy * tdy + tdz * tdz);
+
+                if (tdist > 0) {
+                    // Hard velocity reset toward target (original Quake behavior)
+                    const spd = proj.data.homingSpeed;
+                    proj.velocity.x = (tdx / tdist) * spd;
+                    proj.velocity.y = (tdy / tdist) * spd;
+                    proj.velocity.z = (tdz / tdist) * spd;
+                }
+            }
+
+            proj.nextThink = g.time + 0.2; // 0.2s think interval when homing
+        };
+        projectile.nextThink = game.time + 0.2;
+
+        game.entities.addToCategory(projectile);
+        game.physics.addEntity(projectile);
+
+        if (game.effects) {
+            game.effects.attachProjectileTrail(projectile, projectileType);
+        }
+
+        // Vore attack sound (shalrath.qc)
+        if (game.audio) {
+            game.audio.playPositioned('sound/shalrath/attack2.wav', monster.position);
+        }
+        return;
     }
 
     projectile.classname = projectileType;
@@ -2161,94 +2434,36 @@ function spawnMonsterProjectile(monster, game, damage) {
         z: (dz / dist) * speed
     };
 
-    // Check if this is a Vore homing projectile
-    const isHoming = monster.classname === 'monster_shalrath';
-
     projectile.data = {
         damage: damage,
         owner: monster,
-        target: monster.enemy,  // Track this entity
-        spawnTime: game.time,
-        isHoming: isHoming
+        spawnTime: game.time
     };
 
     // Touch callback - damage on hit
     projectile.touch = (proj, other, g, trace) => {
-        // Don't hit owner
         if (other && other === proj.data.owner) return;
-
-        // Deal damage to entity
         if (other && other.health !== undefined) {
             g.dealDamage(other, proj.data.damage, proj.data.owner);
         }
-
-        // Spawn impact effect - Vore pods have bigger explosion
         if (g.effects && trace) {
-            const explosionSize = proj.data.isHoming ? 0.6 : 0.3;
-            g.effects.spawnExplosion(proj.position, explosionSize);
+            g.effects.spawnExplosion(proj.position, 0.3);
         }
-
-        // Remove projectile
         g.entities.remove(proj);
         g.physics.removeEntity(proj);
     };
 
-    // Think callback - homing behavior or timeout
+    // Think callback - timeout
     projectile.think = (proj, g) => {
         if (g.time - proj.data.spawnTime > 6.0) {
-            // Timeout - explode
-            if (g.effects) {
-                g.effects.spawnExplosion(proj.position, 0.3);
-            }
+            if (g.effects) g.effects.spawnExplosion(proj.position, 0.3);
             g.entities.remove(proj);
             g.physics.removeEntity(proj);
             return;
         }
-
-        // Homing behavior for Vore missiles
-        if (proj.data.isHoming && proj.data.target && proj.data.target.health > 0) {
-            const target = proj.data.target;
-            const dx = target.position.x - proj.position.x;
-            const dy = target.position.y - proj.position.y;
-            const dz = (target.position.z + 22) - proj.position.z; // Aim at center mass
-            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-            if (dist > 0) {
-                // Desired direction
-                const desiredX = dx / dist;
-                const desiredY = dy / dist;
-                const desiredZ = dz / dist;
-
-                // Current velocity direction
-                const speed = Math.sqrt(
-                    proj.velocity.x * proj.velocity.x +
-                    proj.velocity.y * proj.velocity.y +
-                    proj.velocity.z * proj.velocity.z
-                );
-
-                if (speed > 0) {
-                    const curX = proj.velocity.x / speed;
-                    const curY = proj.velocity.y / speed;
-                    const curZ = proj.velocity.z / speed;
-
-                    // Gradually turn toward target (turn rate ~5 degrees per think)
-                    const turnRate = 0.15;
-                    const newX = curX + (desiredX - curX) * turnRate;
-                    const newY = curY + (desiredY - curY) * turnRate;
-                    const newZ = curZ + (desiredZ - curZ) * turnRate;
-
-                    // Renormalize and apply speed
-                    const len = Math.sqrt(newX * newX + newY * newY + newZ * newZ);
-                    proj.velocity.x = (newX / len) * speed;
-                    proj.velocity.y = (newY / len) * speed;
-                    proj.velocity.z = (newZ / len) * speed;
-                }
-            }
-        }
-
-        proj.nextThink = g.time + 0.1;  // Faster think for homing
+        proj.nextThink = g.time + 0.5;
     };
-    projectile.nextThink = game.time + 0.1;
+    projectile.nextThink = game.time + 0.5;
 
     game.entities.addToCategory(projectile);
     game.physics.addEntity(projectile);
@@ -2258,9 +2473,141 @@ function spawnMonsterProjectile(monster, game, damage) {
         game.effects.attachProjectileTrail(projectile, projectileType);
     }
 
-    // Play sound
+}
+
+// Spawn Wizard/Scrag dual spikes (wizard.qc:Wiz_FastFire)
+// Original fires 2 spikes from left/right offsets with a short stagger
+function spawnWizardProjectiles(monster, game, damage) {
+    if (!monster.enemy) return;
+
+    const speed = 600;
+    const projectileType = 'w_spike';
+
+    // Calculate forward and right vectors
+    const yawRad = (monster.angles?.yaw || 0) * Math.PI / 180;
+    const forwardX = Math.cos(yawRad);
+    const forwardY = Math.sin(yawRad);
+    const rightX = forwardY;
+    const rightY = -forwardX;
+
+    // Spawn offsets: origin + '0 0 30' + forward*14 ± right*14
+    const baseZ = monster.position.z + 30;
+    const offsets = [
+        { x: forwardX * 14 + rightX * 14, y: forwardY * 14 + rightY * 14 },  // Right
+        { x: forwardX * 14 - rightX * 14, y: forwardY * 14 - rightY * 14 }   // Left
+    ];
+
+    for (let i = 0; i < 2; i++) {
+        const off = offsets[i];
+        const startX = monster.position.x + off.x;
+        const startY = monster.position.y + off.y;
+        const startZ = baseZ;
+
+        const targetZ = monster.enemy.position.z + 22;
+        const dx = monster.enemy.position.x - startX;
+        const dy = monster.enemy.position.y - startY;
+        const dz = targetZ - startZ;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (dist === 0) continue;
+
+        // Stagger: second spike fires ~0.3s later via delayed spawn
+        const delay = i * 0.3;
+
+        if (delay === 0) {
+            spawnSingleWizardSpike(monster, game, damage, speed, projectileType,
+                { x: startX, y: startY, z: startZ },
+                { x: dx / dist, y: dy / dist, z: dz / dist });
+        } else {
+            // Schedule delayed spike via a temporary spawned entity
+            const capturedStart = { x: startX, y: startY, z: startZ };
+            const capturedDir = { x: dx / dist, y: dy / dist, z: dz / dist };
+            const capturedMonster = monster;
+            const delayEnt = game.entities.spawn();
+            if (delayEnt) {
+                delayEnt.classname = 'wizard_spike_delay';
+                delayEnt.position = { ...monster.position };
+                delayEnt.think = (ent, g) => {
+                    // Recalculate direction to current enemy position for second spike
+                    if (capturedMonster.enemy && capturedMonster.enemy.health > 0) {
+                        const newDx = capturedMonster.enemy.position.x - capturedStart.x;
+                        const newDy = capturedMonster.enemy.position.y - capturedStart.y;
+                        const newDz = (capturedMonster.enemy.position.z + 22) - capturedStart.z;
+                        const newDist = Math.sqrt(newDx * newDx + newDy * newDy + newDz * newDz);
+                        if (newDist > 0) {
+                            capturedDir.x = newDx / newDist;
+                            capturedDir.y = newDy / newDist;
+                            capturedDir.z = newDz / newDist;
+                        }
+                    }
+                    spawnSingleWizardSpike(capturedMonster, g, damage, speed, projectileType,
+                        capturedStart, capturedDir);
+                    g.entities.remove(ent);
+                };
+                delayEnt.nextThink = game.time + delay;
+            }
+        }
+    }
+
+    // Play attack sound
     if (game.audio) {
-        game.audio.playSound('wizard/wattack.wav', monster.position);
+        game.audio.playPositioned('sound/wizard/wattack.wav', monster.position);
+    }
+}
+
+function spawnSingleWizardSpike(monster, game, damage, speed, projectileType, start, dir) {
+    const projectile = game.entities.spawn();
+    if (!projectile) return;
+
+    projectile.classname = projectileType;
+    projectile.category = 'projectile';
+    projectile.moveType = 'fly';
+    projectile.solid = 'bbox';
+    projectile.hull = {
+        mins: { x: -4, y: -4, z: -4 },
+        maxs: { x: 4, y: 4, z: 4 }
+    };
+
+    projectile.position = { x: start.x, y: start.y, z: start.z };
+    projectile.velocity = {
+        x: dir.x * speed,
+        y: dir.y * speed,
+        z: dir.z * speed
+    };
+
+    projectile.data = {
+        damage: damage,
+        owner: monster,
+        spawnTime: game.time
+    };
+
+    projectile.touch = (proj, other, g, trace) => {
+        if (other && other === proj.data.owner) return;
+        if (other && other.health !== undefined) {
+            g.dealDamage(other, proj.data.damage, proj.data.owner);
+        }
+        if (g.effects && trace) {
+            g.effects.spawnExplosion(proj.position, 0.3);
+        }
+        g.entities.remove(proj);
+        g.physics.removeEntity(proj);
+    };
+
+    projectile.think = (proj, g) => {
+        if (g.time - proj.data.spawnTime > 6.0) {
+            g.entities.remove(proj);
+            g.physics.removeEntity(proj);
+        } else {
+            proj.nextThink = g.time + 0.5;
+        }
+    };
+    projectile.nextThink = game.time + 0.5;
+
+    game.entities.addToCategory(projectile);
+    game.physics.addEntity(projectile);
+
+    if (game.effects) {
+        game.effects.attachProjectileTrail(projectile, projectileType);
     }
 }
 
@@ -2271,17 +2618,28 @@ function spawnEnforcerLaser(monster, game, damage) {
     const projectile = game.entities.spawn();
     if (!projectile) return;
 
-    const startZ = monster.position.z + 30;
+    // Calculate forward and right vectors from monster facing direction
+    const yawRad = (monster.angles?.yaw || 0) * Math.PI / 180;
+    const forwardX = Math.cos(yawRad);
+    const forwardY = Math.sin(yawRad);
+    const rightX = forwardY;  // perpendicular right
+    const rightY = -forwardX;
+
+    // Spawn offset: origin + forward*30 + right*8.5 + '0 0 16' (enforcer.qc)
+    const startX = monster.position.x + forwardX * 30 + rightX * 8.5;
+    const startY = monster.position.y + forwardY * 30 + rightY * 8.5;
+    const startZ = monster.position.z + 16;
+
     const targetZ = monster.enemy.position.z + 22;
 
-    const dx = monster.enemy.position.x - monster.position.x;
-    const dy = monster.enemy.position.y - monster.position.y;
+    const dx = monster.enemy.position.x - startX;
+    const dy = monster.enemy.position.y - startY;
     const dz = targetZ - startZ;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
     if (dist === 0) return;
 
-    const speed = 800;  // Enforcer lasers are fast
+    const speed = 600;  // Original Quake enforcer laser speed
 
     projectile.classname = 'laser';
     projectile.category = 'projectile';
@@ -2293,8 +2651,8 @@ function spawnEnforcerLaser(monster, game, damage) {
     };
 
     projectile.position = {
-        x: monster.position.x,
-        y: monster.position.y,
+        x: startX,
+        y: startY,
         z: startZ
     };
 
@@ -2319,6 +2677,10 @@ function spawnEnforcerLaser(monster, game, damage) {
         if (g.effects && trace) {
             g.effects.impact(proj.position, trace?.plane?.normal);
         }
+        // Impact sound (enforcer.qc)
+        if (g.audio) {
+            g.audio.playPositioned('sound/enforcer/enfstop.wav', proj.position);
+        }
         g.entities.remove(proj);
         g.physics.removeEntity(proj);
     };
@@ -2336,7 +2698,7 @@ function spawnEnforcerLaser(monster, game, damage) {
     game.entities.addToCategory(projectile);
     game.physics.addEntity(projectile);
 
-    // Attach laser visual trail (yellow/orange beam)
+    // Attach laser visual trail (yellow beam)
     if (game.effects) {
         game.effects.attachProjectileTrail(projectile, 'laser');
     }
@@ -2347,24 +2709,32 @@ function spawnEnforcerLaser(monster, game, damage) {
     }
 }
 
-// Spawn Death Knight spread projectiles (3 magic missiles)
+// Spawn Death Knight spread projectiles — 6 magic missiles (hknight.qc)
+// Original fires 6 spikes with yaw offsets [-2,-1,0,1,2,3] * 6 degrees
 function spawnHKnightProjectiles(monster, game, damage, speed, projectileType) {
     if (!monster.enemy) return;
 
-    const startZ = monster.position.z + 32;
+    // Spawn offset: origin + bbox center (z+8, not z+32) + forward*20
+    const yawRad = (monster.angles?.yaw || 0) * Math.PI / 180;
+    const forwardX = Math.cos(yawRad);
+    const forwardY = Math.sin(yawRad);
+    const startX = monster.position.x + forwardX * 20;
+    const startY = monster.position.y + forwardY * 20;
+    const startZ = monster.position.z + 8;
+
     const targetZ = monster.enemy.position.z + 22;
 
-    const dx = monster.enemy.position.x - monster.position.x;
-    const dy = monster.enemy.position.y - monster.position.y;
+    const dx = monster.enemy.position.x - startX;
+    const dy = monster.enemy.position.y - startY;
     const dz = targetZ - startZ;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
     if (dist === 0) return;
 
-    // Spawn 3 projectiles with spread
-    const spreadAngles = [-0.15, 0, 0.15];  // About 10 degrees spread
+    // 6 projectiles with yaw offsets [-2,-1,0,1,2,3] * 6 degrees
+    const offsets = [-2, -1, 0, 1, 2, 3];
 
-    for (const spread of spreadAngles) {
+    for (const offset of offsets) {
         const projectile = game.entities.spawn();
         if (!projectile) continue;
 
@@ -2378,23 +2748,28 @@ function spawnHKnightProjectiles(monster, game, damage, speed, projectileType) {
         };
 
         projectile.position = {
-            x: monster.position.x,
-            y: monster.position.y,
+            x: startX,
+            y: startY,
             z: startZ
         };
 
-        // Rotate direction by spread angle
+        // Rotate direction by offset * 6 degrees
+        const spreadRad = offset * 6 * Math.PI / 180;
         const baseX = dx / dist;
         const baseY = dy / dist;
-        const cos = Math.cos(spread);
-        const sin = Math.sin(spread);
+        const cos = Math.cos(spreadRad);
+        const sin = Math.sin(spreadRad);
         const spreadX = baseX * cos - baseY * sin;
         const spreadY = baseX * sin + baseY * cos;
+
+        // Add vertical randomness: vec.z = -vec.z + (random() - 0.5) * 0.1
+        const baseZ = dz / dist;
+        const randomZ = -baseZ + (Math.random() - 0.5) * 0.1;
 
         projectile.velocity = {
             x: spreadX * speed,
             y: spreadY * speed,
-            z: (dz / dist) * speed
+            z: randomZ * speed
         };
 
         projectile.data = {
@@ -2480,7 +2855,6 @@ function spawnMonsterGrenade(monster, game, damage) {
 
     projectile.data = {
         damage: damage,
-        radius: 120,
         owner: monster,
         explodeTime: game.time + 2.5
     };
@@ -2501,8 +2875,12 @@ function spawnMonsterGrenade(monster, game, damage) {
 
         if (other && other.health !== undefined) {
             explodeMonsterGrenade(proj, g, other);
+        } else {
+            // Grenades bounce off walls — play bounce sound (weapons/bounce.wav)
+            if (g.audio) {
+                g.audio.playPositioned('sound/weapons/bounce.wav', proj.position);
+            }
         }
-        // Grenades bounce off walls, don't explode
     };
 
     game.entities.addToCategory(projectile);
@@ -2516,18 +2894,19 @@ function spawnMonsterGrenade(monster, game, damage) {
 
 function explodeMonsterGrenade(projectile, game, directHit = null) {
     const center = projectile.position;
-    const radius = projectile.data.radius;
     const damage = projectile.data.damage;
+    const radius = damage + 40; // Original Quake: radius = damage + 40
 
     // Direct hit damage
     if (directHit && directHit.health !== undefined) {
         game.dealDamage(directHit, damage, projectile.data.owner);
     }
 
-    // Splash damage to nearby entities
+    // Splash damage to nearby entities (T_RadiusDamage from combat.qc)
+    // Original: points = 0.5 * vlen(org - targ.origin), damage = damage - points
     const checkEntities = [...game.entities.players, ...game.entities.monsters];
     for (const entity of checkEntities) {
-        if (!entity.active || entity === projectile.data.owner) continue;
+        if (!entity.active) continue;
         if (entity === directHit) continue; // Already damaged
 
         const dx = entity.position.x - center.x;
@@ -2536,8 +2915,8 @@ function explodeMonsterGrenade(projectile, game, directHit = null) {
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
         if (dist < radius) {
-            const falloff = 1 - (dist / radius);
-            const splashDamage = Math.floor(damage * falloff * 0.5);
+            const points = 0.5 * dist;
+            const splashDamage = Math.floor(damage - points);
             if (splashDamage > 0) {
                 game.dealDamage(entity, splashDamage, projectile.data.owner);
             }
@@ -2607,11 +2986,15 @@ function spawnZombieGib(monster, game, damage) {
 
         if (other && other.health !== undefined) {
             g.dealDamage(other, proj.data.damage, proj.data.owner);
+            // Remove on entity hit
+            g.entities.remove(proj);
+            g.physics.removeEntity(proj);
+        } else {
+            // Wall bounce — play miss sound (zombie.qc)
+            if (g.audio) {
+                g.audio.playPositioned('sound/zombie/z_miss.wav', proj.position);
+            }
         }
-
-        // Remove on any hit
-        g.entities.remove(proj);
-        g.physics.removeEntity(proj);
     };
 
     projectile.think = (proj, g) => {

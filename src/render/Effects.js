@@ -812,6 +812,10 @@ export class Effects {
                 color = 0x888888;
                 size = 6;
                 break;
+            case 'laser':
+                color = 0xffff00; // Yellow
+                size = 4;
+                break;
             case 'zom_gib':
                 color = 0x880000;
                 size = 4;

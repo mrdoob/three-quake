@@ -184,7 +184,8 @@ export class AliasRenderer {
             }
 
             // Parse animation name from frame name (e.g., "run1" -> "run")
-            const match = frame.name.match(/^([a-zA-Z]+)(\d*)$/);
+            // Handles underscore names: "w_attack1" -> "w_attack", "prowl_1" -> "prowl_"
+            const match = frame.name.match(/^([a-zA-Z][a-zA-Z_]*)(\d*)$/);
             if (match) {
                 const animName = match[1];
                 if (!animations[animName]) {
