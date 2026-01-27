@@ -40,6 +40,72 @@ function randomDamage(multiplier) {
     return (Math.random() + Math.random() + Math.random()) * multiplier;
 }
 
+// Normalize angle to 0-360 range (ai.qc:anglemod)
+function anglemod(a) {
+    a = a % 360;
+    if (a < 0) a += 360;
+    return a;
+}
+
+// Gradual yaw turning (ai.qc:ChangeYaw)
+// Turns monster.angles.yaw toward monster.data.idealYaw by at most yawSpeed degrees
+function changeYaw(monster) {
+    const current = anglemod(monster.angles.yaw);
+    const ideal = anglemod(monster.data.idealYaw);
+    const speed = monster.data.yawSpeed;
+
+    if (current === ideal) return;
+
+    let move = ideal - current;
+    if (move > 0) {
+        if (move > 180) move -= 360;
+    } else {
+        if (move < -180) move += 360;
+    }
+
+    if (move > 0) {
+        if (move > speed) move = speed;
+    } else {
+        if (move < -speed) move = -speed;
+    }
+
+    monster.angles.yaw = anglemod(current + move);
+}
+
+// Check if monster is facing its ideal yaw within tolerance (ai.qc:FacingIdeal)
+function facingIdeal(monster) {
+    const delta = anglemod(monster.data.idealYaw - monster.angles.yaw);
+    // Within 45 degrees (checking both directions of wraparound)
+    return delta < 45 || delta > 315;
+}
+
+// Check if monster has a clear shot to its enemy (fight.qc:CheckAttack traceline)
+// Traces from monster eyes to enemy eyes. Returns false if blocked by world geometry.
+function hasClearShot(monster, game) {
+    if (!monster.enemy) return false;
+    const def = monster.data?.monsterDef;
+    const viewHeight = def?.viewHeight || 25;
+
+    const start = {
+        x: monster.position.x,
+        y: monster.position.y,
+        z: monster.position.z + viewHeight
+    };
+    const end = {
+        x: monster.enemy.position.x,
+        y: monster.enemy.position.y,
+        z: monster.enemy.position.z + 22
+    };
+
+    const trace = game.physics.traceLine(start, end);
+
+    // Original: if (trace_ent != targ) return FALSE
+    // Also: if (trace_inopen && trace_inwater) return FALSE (sight crosses water surface)
+    if (trace.fraction === 1.0) return true;
+    if (trace.entity && trace.entity === monster.enemy) return true;
+    return false;
+}
+
 // Monster definitions - all values from original QuakeC source
 // Hull sizes from original Quake:
 // setsize('-16 -16 -24', '16 16 40') - standard monsters
@@ -106,6 +172,7 @@ export const MONSTER_TYPES = {
         idleSound2: 'ogre/ogidle2.wav',
         dragSound: 'ogre/ogdrag.wav',
         sawSound: 'ogre/ogsawatk.wav',
+        yawSpeed: 30,  // Ogre turns faster than default (ai.qc)
         viewHeight: 25
     },
     'monster_knight': {
@@ -345,9 +412,18 @@ export async function createMonster(entityManager, classname, position, angles, 
     monster.data.monsterDef = monsterDef;
     monster.data.lastSightTime = 0;
     monster.data.attackTime = 0;
+    monster.data.attackFinished = 0;
     monster.data.painTime = 0;
     monster.data.currentAnim = 'stand';
     monster.data.pathWaitTime = 0;  // Time to wait at path_corner
+
+    // Gradual yaw turning (ai.qc:ChangeYaw)
+    monster.data.idealYaw = monster.angles.yaw;
+    monster.data.yawSpeed = monsterDef.yawSpeed || 20;  // degrees per 0.1s think
+
+    // Attack state machine (ai.qc: AS_STRAIGHT/AS_SLIDING/AS_MELEE/AS_MISSILE)
+    monster.data.attackState = 'straight';  // 'straight', 'melee', 'missile', 'sliding'
+    monster.data.lefty = false;  // Strafe direction for AS_SLIDING
 
     monster.think = monsterThink;
     monster.nextThink = game.time + 0.1;
@@ -438,6 +514,9 @@ function monsterThink(monster, game) {
             thinkInterval = 0.1;
     }
     monster.nextThink = game.time + thinkInterval;
+
+    // Gradual yaw turning (ai.qc:ChangeYaw) - called every think
+    changeYaw(monster);
 
     // Update mesh position and rotation
     if (monster.mesh) {
@@ -535,9 +614,17 @@ function setAnimation(monster, animName, game) {
 function monsterStand(monster, game) {
     // Check for player visibility
     if (findEnemy(monster, game)) {
-        monster.state = MONSTER_STATE.RUN;
-        playSightSound(monster, game);
+        foundTarget(monster, game);
     }
+}
+
+// Called when a monster first spots the player (ai.qc:FoundTarget / HuntTarget)
+function foundTarget(monster, game) {
+    monster.state = MONSTER_STATE.RUN;
+    monster.data.attackState = 'straight';
+    // HuntTarget: SUB_AttackFinished(1) — 1 second delay before first attack
+    monster.data.attackFinished = game.time + 1.0;
+    playSightSound(monster, game);
 }
 
 // Play monster sight sound (ai.qc:SightSound)
@@ -557,8 +644,7 @@ function playSightSound(monster, game) {
 function monsterWalk(monster, game) {
     // Patrol behavior - move toward goal entity (path_corner)
     if (findEnemy(monster, game)) {
-        monster.state = MONSTER_STATE.RUN;
-        playSightSound(monster, game);
+        foundTarget(monster, game);
         return;
     }
 
@@ -648,6 +734,7 @@ function monsterRun(monster, game) {
             monster.enemy = monster.data.oldenemy;
             monster.data.oldenemy = null;
         } else {
+            monster.data.attackState = 'straight';
             monster.state = MONSTER_STATE.STAND;
             return;
         }
@@ -656,14 +743,17 @@ function monsterRun(monster, game) {
     const def = monster.data.monsterDef;
 
     // Check visibility
-    const enemyVisible = canSeeEntity(monster, monster.enemy, game, false);
-    if (enemyVisible) {
+    monster.data.enemyVisible = canSeeEntity(monster, monster.enemy, game, false);
+    if (monster.data.enemyVisible) {
         monster.data.searchTime = game.time + 5;
+        // Face enemy when visible
+        faceEntity(monster, monster.enemy);
     }
 
     // Lost sight of enemy for too long
-    if (!enemyVisible && game.time > (monster.data.searchTime || 0)) {
+    if (!monster.data.enemyVisible && game.time > (monster.data.searchTime || 0)) {
         monster.enemy = null;
+        monster.data.attackState = 'straight';
         monster.state = MONSTER_STATE.STAND;
         return;
     }
@@ -671,15 +761,44 @@ function monsterRun(monster, game) {
     // Calculate range to enemy
     const dist = distanceTo(monster, monster.enemy);
     const range = getRange(dist);
+    monster.data.enemyRange = range;
 
-    // Check for attack (fight.qc:CheckAttack logic)
-    if (enemyVisible && game.time >= (monster.data.attackFinished || 0)) {
-        if (checkMonsterAttack(monster, range, dist, game)) {
-            return;  // Attack initiated
-        }
+    // Check for attack (fight.qc:CheckAnyAttack logic)
+    if (monster.data.enemyVisible && game.time >= (monster.data.attackFinished || 0)) {
+        checkMonsterAttack(monster, range, dist, game);
     }
 
-    // Move toward enemy
+    // Dispatch based on attack state (ai.qc:ai_run)
+    if (monster.data.attackState === 'melee') {
+        // ai_run_melee: turn toward enemy, attack when facing
+        faceEntity(monster, monster.enemy);
+        if (facingIdeal(monster)) {
+            monster.state = MONSTER_STATE.ATTACK;
+            monster.data.attackType = 'melee';
+            monster.data.attackTime = game.time + 0.3;
+            monster.data.attackState = 'straight';
+        }
+        return;
+    }
+
+    if (monster.data.attackState === 'missile') {
+        // ai_run_missile: turn toward enemy, attack when facing
+        faceEntity(monster, monster.enemy);
+        if (facingIdeal(monster)) {
+            monster.state = MONSTER_STATE.ATTACK;
+            // attackType was already set by the check function
+            monster.data.attackState = 'straight';
+        }
+        return;
+    }
+
+    if (monster.data.attackState === 'sliding') {
+        // ai_run_slide: strafe perpendicular to enemy, maintain range
+        aiRunSlide(monster, game);
+        return;
+    }
+
+    // Default: move toward enemy (ai_run_straight)
     if (def.flying && monster.classname === 'monster_wizard') {
         moveWizard(monster, monster.enemy.position, def.speed, game);
     } else {
@@ -692,14 +811,51 @@ function monsterRun(monster, game) {
     }
 }
 
+// ai_run_slide: Strafe sideways while facing enemy (ai.qc)
+function aiRunSlide(monster, game) {
+    const def = monster.data.monsterDef;
+    faceEntity(monster, monster.enemy);
+
+    // Calculate strafe direction perpendicular to facing
+    const yawRad = monster.data.idealYaw * Math.PI / 180;
+    const forwardX = Math.cos(yawRad);
+    const forwardY = Math.sin(yawRad);
+
+    // Perpendicular: rotate 90 degrees based on lefty flag
+    const strafeDir = monster.data.lefty ? 1 : -1;
+    const strafeX = -forwardY * strafeDir;
+    const strafeY = forwardX * strafeDir;
+
+    const speed = def.speed;
+    monster.velocity.x = strafeX * speed;
+    monster.velocity.y = strafeY * speed;
+
+    // Check if stuck and flip direction (ai.qc: if walkmove fails, flip lefty)
+    if (monster.data.lastPos) {
+        const movedX = monster.position.x - monster.data.lastPos.x;
+        const movedY = monster.position.y - monster.data.lastPos.y;
+        const movedDist = Math.sqrt(movedX * movedX + movedY * movedY);
+        const expectedMove = speed * 0.1;
+        if (expectedMove > 5 && movedDist < expectedMove * 0.1) {
+            monster.data.lefty = !monster.data.lefty;
+        }
+    }
+    monster.data.lastPos = { ...monster.position };
+}
+
 /**
- * Check if monster should attack (fight.qc:CheckAttack)
- * Returns true if attack initiated
+ * Check if monster should attack (fight.qc:CheckAttack / CheckAnyAttack)
+ * Sets monster.data.attackState rather than immediately entering ATTACK state.
+ * The attack state machine in monsterRun() handles the turn-then-attack flow.
  */
 function checkMonsterAttack(monster, range, dist, game) {
     const def = monster.data.monsterDef;
 
     // Monster-specific attack checks
+    if (monster.classname === 'monster_army') {
+        return checkSoldierAttack(monster, range, dist, game);
+    }
+
     if (monster.classname === 'monster_demon1' || monster.classname === 'monster_dog') {
         return checkLeapAttack(monster, range, dist, game);
     }
@@ -718,9 +874,7 @@ function checkMonsterAttack(monster, range, dist, game) {
 
     // Melee attack if in melee range
     if (range === RANGE_MELEE && hasMelee) {
-        monster.state = MONSTER_STATE.ATTACK;
-        monster.data.attackType = 'melee';
-        monster.data.attackTime = game.time + 0.3;
+        monster.data.attackState = 'melee';
         return true;
     }
 
@@ -731,6 +885,11 @@ function checkMonsterAttack(monster, range, dist, game) {
 
     // Don't attack if too far
     if (range === RANGE_FAR) {
+        return false;
+    }
+
+    // Clear shot check (fight.qc: traceline before ranged attack)
+    if (!hasClearShot(monster, game)) {
         return false;
     }
 
@@ -747,11 +906,47 @@ function checkMonsterAttack(monster, range, dist, game) {
     }
 
     if (Math.random() < chance) {
-        monster.state = MONSTER_STATE.ATTACK;
-        monster.data.attackType = 'ranged';
+        monster.data.attackState = 'missile';
+        monster.data.attackType = def.attackType === 'melee' ? def.attackType2 : def.attackType;
         monster.data.attackTime = game.time + 0.5;
         // SUB_AttackFinished: random delay before next attack
         monster.data.attackFinished = game.time + 2 * Math.random();
+        return true;
+    }
+
+    return false;
+}
+
+// Soldier-specific attack check (fight.qc:SoldierCheckAttack)
+function checkSoldierAttack(monster, range, dist, game) {
+    // No melee - soldier only has hitscan
+    if (range === RANGE_FAR) return false;
+
+    // Clear shot check
+    if (!hasClearShot(monster, game)) return false;
+
+    // Soldier chance values (fight.qc:SoldierCheckAttack - no melee factor)
+    let chance;
+    if (range === RANGE_MELEE) {
+        chance = 0.9;
+    } else if (range === RANGE_NEAR) {
+        chance = 0.4;
+    } else if (range === RANGE_MID) {
+        chance = 0.05;
+    } else {
+        chance = 0;
+    }
+
+    if (Math.random() < chance) {
+        monster.data.attackState = 'missile';
+        monster.data.attackType = 'hitscan';
+        monster.data.attackTime = game.time + 0.5;
+        // Soldier cooldown: 1 + random() (fight.qc), not 2*random()
+        monster.data.attackFinished = game.time + 1 + Math.random();
+        // 30% chance to flip strafe direction after deciding to fire
+        if (Math.random() < 0.3) {
+            monster.data.lefty = !monster.data.lefty;
+        }
         return true;
     }
 
@@ -762,13 +957,17 @@ function checkMonsterAttack(monster, range, dist, game) {
 function checkLeapAttack(monster, range, dist, game) {
     const def = monster.data.monsterDef;
 
-    // Melee if in range
+    // Melee if in range (demon.qc: if enemy_range == RANGE_MELEE → AS_MELEE)
     if (range === RANGE_MELEE) {
-        monster.state = MONSTER_STATE.ATTACK;
-        monster.data.attackType = 'melee';
-        monster.data.attackTime = game.time + 0.3;
+        monster.data.attackState = 'melee';
         return true;
     }
+
+    // Must be visible for leap
+    if (!monster.data.enemyVisible) return false;
+
+    // Must be facing ideal direction (demon.qc: CheckDemonJump requires FacingIdeal)
+    if (!facingIdeal(monster)) return false;
 
     // Check leap conditions
     const leapRange = def.leapRange || { min: 100, max: 200 };
@@ -800,10 +999,11 @@ function checkLeapAttack(monster, range, dist, game) {
         if (horizDist > leapRange.max && Math.random() < 0.9) return false;
     }
 
-    // Initiate leap
+    // Initiate leap directly (leap bypasses the turn-then-attack since we checked FacingIdeal)
     monster.state = MONSTER_STATE.ATTACK;
     monster.data.attackType = 'leap';
     monster.data.attackTime = game.time + 0.2;  // Short windup
+    monster.data.attackState = 'straight';
 
     // Play leap sound
     if (def.leapSound && game.audio) {
@@ -817,18 +1017,9 @@ function checkLeapAttack(monster, range, dist, game) {
 function checkShamblerAttack(monster, range, dist, game) {
     const def = monster.data.monsterDef;
 
-    // Melee if in range and can damage
+    // Melee if in range (shambler.qc: AS_MELEE, actual melee type chosen in sham_melee)
     if (range === RANGE_MELEE) {
-        monster.state = MONSTER_STATE.ATTACK;
-        // Choose melee type: 60% smash (at full health), else 50/50 left/right claw
-        if (Math.random() > 0.6 || monster.health === monster.maxHealth) {
-            monster.data.attackType = 'smash';
-        } else if (Math.random() > 0.5) {
-            monster.data.attackType = 'claw_right';
-        } else {
-            monster.data.attackType = 'claw_left';
-        }
-        monster.data.attackTime = game.time + 0.5;
+        monster.data.attackState = 'melee';
         return true;
     }
 
@@ -836,8 +1027,11 @@ function checkShamblerAttack(monster, range, dist, game) {
     if (dist > (def.lightningRange || 600)) return false;
     if (range === RANGE_FAR) return false;
 
-    // Lightning attack
-    monster.state = MONSTER_STATE.ATTACK;
+    // Clear shot check
+    if (!hasClearShot(monster, game)) return false;
+
+    // Lightning attack via missile state (turn then fire)
+    monster.data.attackState = 'missile';
     monster.data.attackType = 'lightning';
     monster.data.attackTime = game.time + 0.5;
     monster.data.attackFinished = game.time + 2 + 2 * Math.random();
@@ -848,16 +1042,16 @@ function checkShamblerAttack(monster, range, dist, game) {
 function checkOgreAttack(monster, range, dist, game) {
     const def = monster.data.monsterDef;
 
-    // Chainsaw melee if in range
+    // Chainsaw melee if in range (ogre.qc: AS_MELEE, choice in ogre_melee)
     if (range === RANGE_MELEE) {
-        monster.state = MONSTER_STATE.ATTACK;
-        // 50% smash, 50% swing
-        monster.data.attackType = Math.random() > 0.5 ? 'chainsaw_smash' : 'chainsaw_swing';
-        monster.data.attackTime = game.time + 0.5;
+        monster.data.attackState = 'melee';
         return true;
     }
 
     if (range === RANGE_FAR) return false;
+
+    // Clear shot check
+    if (!hasClearShot(monster, game)) return false;
 
     // Grenade attack
     let chance;
@@ -870,7 +1064,7 @@ function checkOgreAttack(monster, range, dist, game) {
     }
 
     if (Math.random() < chance) {
-        monster.state = MONSTER_STATE.ATTACK;
+        monster.data.attackState = 'missile';
         monster.data.attackType = 'grenade';
         monster.data.attackTime = game.time + 0.5;
         monster.data.attackFinished = game.time + 1 + 2 * Math.random();
@@ -883,9 +1077,35 @@ function checkOgreAttack(monster, range, dist, game) {
 function monsterAttack(monster, game) {
     const def = monster.data.monsterDef;
 
+    // Resolve melee attack subtype per monster when entering attack
+    if (monster.data.attackType === 'melee' && !monster.data.meleeResolved) {
+        monster.data.meleeResolved = true;
+        if (monster.classname === 'monster_shambler') {
+            // shambler.qc:sham_melee - random choice
+            if (Math.random() > 0.5) {
+                monster.data.attackType = 'smash';
+            } else if (Math.random() > 0.5) {
+                monster.data.attackType = 'claw_right';
+            } else {
+                monster.data.attackType = 'claw_left';
+            }
+        } else if (monster.classname === 'monster_ogre') {
+            // ogre.qc:ogre_melee - 50/50 smash or swing
+            monster.data.attackType = Math.random() > 0.5 ? 'chainsaw_smash' : 'chainsaw_swing';
+        } else if (monster.classname === 'monster_knight') {
+            // knight.qc:knight_attack - distance check (Fix 9)
+            const dist = distanceTo(monster, monster.enemy);
+            if (dist >= 80) {
+                monster.data.attackType = 'knight_charge';
+            }
+            // else stays as 'melee' (standing slash)
+        }
+    }
+
     if (game.time >= monster.data.attackTime) {
         // Execute attack
         executeAttack(monster, game);
+        monster.data.meleeResolved = false;
 
         // Check if still attacking (multi-part attacks like shambler lightning)
         // executeAttack may have set a new attackTime to continue the sequence
@@ -917,6 +1137,15 @@ function executeAttack(monster, game) {
 
     switch (attackType) {
         case 'melee':
+            executeMeleeAttack(monster, game);
+            break;
+
+        case 'knight_charge':
+            // Knight running charge attack (knight.qc:knight_runatk1)
+            // Move toward enemy during attack, then deal melee damage
+            if (monster.enemy) {
+                moveToward(monster, monster.enemy.position, monster.data.monsterDef.speed, game);
+            }
             executeMeleeAttack(monster, game);
             break;
 
@@ -1228,14 +1457,17 @@ function executeShamblerLightning(monster, game) {
 function findEnemy(monster, game) {
     // Check if another monster recently saw the player (sight entity propagation)
     // ai.qc: if (sight_entity_time >= time - 0.1 && ...)
+    // Fix 7: sight_entity is the MONSTER that spotted the player, not the player itself
     if (game.sightEntity && game.sightEntityTime &&
         game.time - game.sightEntityTime < 0.5) {
-        const sightTarget = game.sightEntity;
-        if (sightTarget && sightTarget.health > 0) {
-            // Check if we can see where the player was spotted
-            const dist = distanceTo(monster, sightTarget);
-            if (dist < 1000 && canSeeEntity(monster, sightTarget, game, true)) {
-                monster.enemy = sightTarget;
+        const alertingMonster = game.sightEntity;
+        if (alertingMonster && alertingMonster !== monster &&
+            alertingMonster.enemy && alertingMonster.enemy.health > 0) {
+            // Check if we can see the alerting monster (not the player directly)
+            const dist = distanceTo(monster, alertingMonster);
+            if (dist < 1000 && canSeeEntity(monster, alertingMonster, game, true)) {
+                // We see the alerted monster — target its enemy (the player)
+                monster.enemy = alertingMonster.enemy;
                 return true;
             }
         }
@@ -1245,18 +1477,84 @@ function findEnemy(monster, game) {
     for (const player of game.entities.players) {
         if (player.health <= 0) continue;
 
-        if (canSeeEntity(monster, player, game)) {
-            monster.enemy = player;
+        // Check invisibility (items.qc: IT_INVISIBILITY)
+        if (player.items && (player.items & 0x80000)) continue;  // IT_INVISIBILITY = 524288
 
-            // Set sight entity for other monsters (ai.qc:sight_entity)
-            game.sightEntity = player;
-            game.sightEntityTime = game.time;
+        // Range-dependent detection rules (ai.qc:FindTarget)
+        const dist = distanceTo(monster, player);
+        const range = getRange(dist);
 
-            return true;
+        // FAR range: never detected
+        if (range === RANGE_FAR) continue;
+
+        // Check visibility (line of sight)
+        if (!canSeeEntityLOS(monster, player, game)) continue;
+
+        // Range-dependent infront requirements
+        if (range === RANGE_MELEE) {
+            // MELEE: always detected (even behind monster)
+            // No angle check needed
+        } else if (range === RANGE_NEAR) {
+            // NEAR: must be infront OR show_hostile > time
+            const infront = isInFront(monster, player);
+            const showHostile = game.showHostileTime && game.showHostileTime > game.time;
+            if (!infront && !showHostile) continue;
+        } else if (range === RANGE_MID) {
+            // MID: must be infront
+            if (!isInFront(monster, player)) continue;
         }
+
+        monster.enemy = player;
+
+        // Set sight entity for other monsters — store the MONSTER, not the player
+        game.sightEntity = monster;
+        game.sightEntityTime = game.time;
+
+        return true;
     }
 
     return false;
+}
+
+// Line of sight check only (no angle check) — split from canSeeEntity for findEnemy
+function canSeeEntityLOS(monster, target, game) {
+    const def = monster.data?.monsterDef;
+    const viewHeight = def?.viewHeight || 25;
+
+    const distSq = Math.pow(target.position.x - monster.position.x, 2) +
+                   Math.pow(target.position.y - monster.position.y, 2) +
+                   Math.pow((target.position.z + 22) - (monster.position.z + viewHeight), 2);
+
+    if (distSq > 1000 * 1000) return false;
+
+    const start = {
+        x: monster.position.x,
+        y: monster.position.y,
+        z: monster.position.z + viewHeight
+    };
+    const end = {
+        x: target.position.x,
+        y: target.position.y,
+        z: target.position.z + 22
+    };
+
+    const trace = game.physics.traceLine(start, end);
+    if (trace.startSolid || trace.allSolid) return false;
+    return trace.fraction === 1.0;
+}
+
+// Check if target is in front of monster (ai.qc:infront — dot > 0.3)
+function isInFront(monster, target) {
+    const dx = target.position.x - monster.position.x;
+    const dy = target.position.y - monster.position.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= 0) return true;
+
+    const yawRad = monster.angles.yaw * Math.PI / 180;
+    const forwardX = Math.cos(yawRad);
+    const forwardY = Math.sin(yawRad);
+    const dot = forwardX * (dx / dist) + forwardY * (dy / dist);
+    return dot > 0.3;
 }
 
 /**
@@ -1304,13 +1602,7 @@ export function alertNearbyMonsters(game, position, target, range = 1000) {
 
             // Only switch to RUN if currently idle (STAND or WALK)
             if (monster.state === MONSTER_STATE.STAND || monster.state === MONSTER_STATE.WALK) {
-                monster.state = MONSTER_STATE.RUN;
-
-                // Play sight sound when first alerted
-                const def = monster.data.monsterDef;
-                if (def.sightSound && game.audio) {
-                    game.audio.playPositioned(`sound/${def.sightSound}`, monster.position);
-                }
+                foundTarget(monster, game);
             }
         }
     }
@@ -1421,15 +1713,15 @@ function moveToward(monster, targetPos, speed, game) {
         monster.velocity.x = (dx / dist) * speed;
         monster.velocity.y = (dy / dist) * speed;
 
-        // Face movement direction
-        monster.angles.yaw = Math.atan2(dy, dx) * 180 / Math.PI;
+        // Face movement direction (gradual via changeYaw)
+        monster.data.idealYaw = Math.atan2(dy, dx) * 180 / Math.PI;
     }
 }
 
 function faceEntity(monster, target) {
     const dx = target.position.x - monster.position.x;
     const dy = target.position.y - monster.position.y;
-    monster.angles.yaw = Math.atan2(dy, dx) * 180 / Math.PI;
+    monster.data.idealYaw = Math.atan2(dy, dx) * 180 / Math.PI;
 }
 
 // Scrag/Wizard hovering and strafing movement (like original Quake)
@@ -1486,8 +1778,8 @@ function moveWizard(monster, targetPos, speed, game) {
     const bobPhase = game.time * 3;
     monster.velocity.z += Math.sin(bobPhase) * 20;
 
-    // Face the enemy
-    monster.angles.yaw = Math.atan2(dy, dx) * 180 / Math.PI;
+    // Face the enemy (gradual via changeYaw)
+    monster.data.idealYaw = Math.atan2(dy, dx) * 180 / Math.PI;
 }
 
 function distanceTo(monster, target) {
