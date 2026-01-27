@@ -262,6 +262,17 @@ export class EntityManager {
                 func.touch(func, entity, this.game);
             }
         }
+
+        // Check item entities (health, armor, ammo, weapons, keys, powerups)
+        for (let i = 0; i < this.items.length; i++) {
+            const item = this.items[i];
+            if (!item.active || !item.touch) continue;
+            if (item === entity) continue;
+
+            if (this.entitiesOverlap(entity, item)) {
+                item.touch(item, entity, this.game);
+            }
+        }
     }
 
     entitiesOverlap(a, b) {

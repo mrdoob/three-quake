@@ -187,6 +187,10 @@ export class EntitySpawner {
             case 'path_corner':
                 return this.spawnPathCorner(entData);
 
+            case 'trap_spikeshooter':
+            case 'trap_shooter':
+                return this.spawnTrap(classname, position, entData);
+
             case 'misc_explobox':
             case 'misc_explobox2':
                 return this.spawnExploBox(position, entData);
@@ -806,6 +810,12 @@ export class EntitySpawner {
                 break;
             case 'func_train':
                 this.setupTrain(func, entData);
+                break;
+            case 'func_door_secret':
+                this.setupSecretDoor(func, entData);
+                break;
+            case 'func_wall':
+                this.setupFuncWall(func, entData);
                 break;
             case 'func_rotating':
                 this.setupRotating(func, entData);
@@ -2225,5 +2235,438 @@ export class EntitySpawner {
         };
 
         return box;
+    }
+
+    /**
+     * func_door_secret — Secret door with 3-stage movement (doors.qc:737-809)
+     * Moves: back 8 units → sideways (t_length) → wait → return
+     * Spawnflags: 1=OPEN_ONCE, 2=1ST_LEFT, 4=1ST_DOWN, 8=NO_SHOOT, 16=YES_SHOOT
+     */
+    setupSecretDoor(door, entData) {
+        const spawnflags = door.spawnflags || 0;
+
+        door.data.speed = parseFloat(entData.speed) || 50;
+        door.data.wait = parseFloat(entData.wait) || 5;
+        door.data.dmg = parseInt(entData.dmg) || 2;
+        door.data.state = 'idle';  // idle, move1, wait1, move2, wait2, move3, wait3, move4
+        door.data.moveProgress = 0;
+        door.data.openOnce = (spawnflags & 1) !== 0;
+
+        // Sounds based on 'sounds' field (1=medieval, 2=metal, 3=base)
+        const sounds = parseInt(entData.sounds) || 0;
+        const soundMap = {
+            1: { move: 'sound/doors/doormv1.wav', stop: 'sound/doors/drcls4.wav' },
+            2: { move: 'sound/doors/apts4.wav', stop: 'sound/doors/apts3.wav' },
+            3: { move: 'sound/doors/basesec1.wav', stop: 'sound/doors/basesec2.wav' }
+        };
+        door.data.sounds = soundMap[sounds] || soundMap[1];
+
+        // Parse mangle (original angles used for direction calculation)
+        // In original Quake, mangle stores the "angle" before clearing self.angles
+        const angle = entData._angle || 0;
+
+        // Determine sideways direction from angle
+        // Original Quake: v_forward from self.mangle, v_right for sideways
+        const yawRad = angle * Math.PI / 180;
+        const forward = { x: Math.cos(yawRad), y: Math.sin(yawRad), z: 0 };
+        const right = { x: -Math.sin(yawRad), y: Math.cos(yawRad), z: 0 };
+
+        // Calculate dimensions from BSP model
+        const bspModel = this.bsp.models[door.data.modelIndex];
+        if (!bspModel) return;
+
+        const sizeX = bspModel.maxs.x - bspModel.mins.x;
+        const sizeY = bspModel.maxs.y - bspModel.mins.y;
+        const sizeZ = bspModel.maxs.z - bspModel.mins.z;
+
+        // t_width: backward movement distance (default 8)
+        const t_width = parseFloat(entData.t_width) || 8;
+        // t_length: sideways movement distance (default: size along movement axis)
+        let t_length = parseFloat(entData.t_length) || 0;
+        if (t_length === 0) {
+            // Use size along the right vector direction
+            if (Math.abs(right.x) > Math.abs(right.y)) {
+                t_length = sizeX;
+            } else {
+                t_length = sizeY;
+            }
+        }
+
+        // Movement direction for phase 1 (backward): negative forward
+        door.data.dir1 = { x: -forward.x, y: -forward.y, z: 0 };
+        door.data.dist1 = t_width;
+
+        // Movement direction for phase 2 (sideways)
+        // SECRET_1ST_DOWN: first move is down instead of sideways
+        if (spawnflags & 4) {
+            // Move down
+            door.data.dir2 = { x: 0, y: 0, z: -1 };
+            door.data.dist2 = sizeZ;
+        } else if (spawnflags & 2) {
+            // SECRET_1ST_LEFT: move left (negative right)
+            door.data.dir2 = { x: -right.x, y: -right.y, z: 0 };
+            door.data.dist2 = t_length;
+        } else {
+            // Default: move right
+            door.data.dir2 = { x: right.x, y: right.y, z: 0 };
+            door.data.dist2 = t_length;
+        }
+
+        door.data.startPos = { ...door.position };
+        if (door.mesh) {
+            door.data.meshStartPos = {
+                x: door.mesh.position.x,
+                y: door.mesh.position.y,
+                z: door.mesh.position.z
+            };
+        }
+
+        // Phase tracking
+        door.data.phase1Pos = {
+            x: door.data.startPos.x + door.data.dir1.x * door.data.dist1,
+            y: door.data.startPos.y + door.data.dir1.y * door.data.dist1,
+            z: door.data.startPos.z + door.data.dir1.z * door.data.dist1
+        };
+        door.data.phase2Pos = {
+            x: door.data.phase1Pos.x + door.data.dir2.x * door.data.dist2,
+            y: door.data.phase1Pos.y + door.data.dir2.y * door.data.dist2,
+            z: door.data.phase1Pos.z + door.data.dir2.z * door.data.dist2
+        };
+
+        // Health-based activation (shootable secret doors)
+        // Original Quake: if no targetname and not SECRET_YES_SHOOT: set health
+        if (!(spawnflags & 8) && !door.targetname) {
+            door.data.health = 10000;
+            door.data.takedamage = true;
+        }
+        if (spawnflags & 16) {
+            door.data.health = 10000;
+            door.data.takedamage = true;
+        }
+
+        // Touch shows message
+        door.touch = (self, other, game) => {
+            if (other.classname !== 'player') return;
+            if (self.data.state !== 'idle') return;
+
+            // Show message
+            if (self.message) {
+                if (game.showCenterPrint) {
+                    game.showCenterPrint(self.message);
+                }
+                if (game.audio) {
+                    game.audio.playLocal('sound/misc/talk.wav');
+                }
+            }
+        };
+
+        // Use/damage triggers the secret door
+        door.use = (self, activator, game) => {
+            this.secretDoorActivate(self, game);
+        };
+
+        door.think = (self, game, dt) => {
+            this.secretDoorThink(self, game, dt);
+        };
+
+        door.message = entData.message || '';
+
+        console.log(`Spawned func_door_secret, dist1=${door.data.dist1}, dist2=${door.data.dist2}`);
+    }
+
+    secretDoorActivate(door, game) {
+        if (door.data.state !== 'idle') return;
+
+        door.data.state = 'move1';
+        door.data.moveProgress = 0;
+
+        if (game.audio && door.data.sounds) {
+            game.audio.playPositioned(door.data.sounds.move, door.position);
+        }
+
+        // Fire targets (trigger_secret, etc.)
+        this.fireTargets(door, null, game);
+    }
+
+    secretDoorThink(door, game, dt) {
+        if (door.data.state === 'idle') return;
+
+        const speed = door.data.speed * dt;
+
+        switch (door.data.state) {
+            case 'move1': {
+                // Move backward
+                door.data.moveProgress += speed;
+                if (door.data.moveProgress >= door.data.dist1) {
+                    door.data.moveProgress = door.data.dist1;
+                    door.data.state = 'wait1';
+                    door.data.waitUntil = game.time + 1.0;
+                    if (game.audio && door.data.sounds) {
+                        game.audio.playPositioned(door.data.sounds.stop, door.position);
+                    }
+                }
+                this.updateSecretDoorPosition(door, 1);
+                break;
+            }
+            case 'wait1': {
+                if (game.time >= door.data.waitUntil) {
+                    door.data.state = 'move2';
+                    door.data.moveProgress = 0;
+                    if (game.audio && door.data.sounds) {
+                        game.audio.playPositioned(door.data.sounds.move, door.position);
+                    }
+                }
+                break;
+            }
+            case 'move2': {
+                // Move sideways
+                door.data.moveProgress += speed;
+                if (door.data.moveProgress >= door.data.dist2) {
+                    door.data.moveProgress = door.data.dist2;
+                    door.data.state = 'wait2';
+                    door.data.waitUntil = game.time + door.data.wait;
+                    if (game.audio && door.data.sounds) {
+                        game.audio.playPositioned(door.data.sounds.stop, door.position);
+                    }
+                }
+                this.updateSecretDoorPosition(door, 2);
+                break;
+            }
+            case 'wait2': {
+                if (door.data.openOnce) return;  // Stay open permanently
+                if (game.time >= door.data.waitUntil) {
+                    door.data.state = 'move3';
+                    door.data.moveProgress = door.data.dist2;
+                    if (game.audio && door.data.sounds) {
+                        game.audio.playPositioned(door.data.sounds.move, door.position);
+                    }
+                }
+                break;
+            }
+            case 'move3': {
+                // Return sideways
+                door.data.moveProgress -= speed;
+                if (door.data.moveProgress <= 0) {
+                    door.data.moveProgress = 0;
+                    door.data.state = 'wait3';
+                    door.data.waitUntil = game.time + 1.0;
+                    if (game.audio && door.data.sounds) {
+                        game.audio.playPositioned(door.data.sounds.stop, door.position);
+                    }
+                }
+                this.updateSecretDoorPosition(door, 2);
+                break;
+            }
+            case 'wait3': {
+                if (game.time >= door.data.waitUntil) {
+                    door.data.state = 'move4';
+                    door.data.moveProgress = door.data.dist1;
+                    if (game.audio && door.data.sounds) {
+                        game.audio.playPositioned(door.data.sounds.move, door.position);
+                    }
+                }
+                break;
+            }
+            case 'move4': {
+                // Return backward to start
+                door.data.moveProgress -= speed;
+                if (door.data.moveProgress <= 0) {
+                    door.data.moveProgress = 0;
+                    door.data.state = 'idle';
+                    if (game.audio && door.data.sounds) {
+                        game.audio.playPositioned(door.data.sounds.stop, door.position);
+                    }
+                }
+                this.updateSecretDoorPosition(door, 1);
+                break;
+            }
+        }
+    }
+
+    updateSecretDoorPosition(door, phase) {
+        const start = door.data.startPos;
+        const dir1 = door.data.dir1;
+        const dir2 = door.data.dir2;
+        const progress = door.data.moveProgress;
+
+        let targetX, targetY, targetZ;
+
+        if (phase === 1) {
+            // Moving along phase 1 direction (backward)
+            targetX = start.x + dir1.x * progress;
+            targetY = start.y + dir1.y * progress;
+            targetZ = start.z + dir1.z * progress;
+        } else {
+            // Moving along phase 2 direction (sideways), after phase 1 is complete
+            const p1 = door.data.phase1Pos;
+            targetX = p1.x + dir2.x * progress;
+            targetY = p1.y + dir2.y * progress;
+            targetZ = p1.z + dir2.z * progress;
+        }
+
+        door.position.x = targetX;
+        door.position.y = targetY;
+        door.position.z = targetZ;
+
+        if (door.mesh && door.data.meshStartPos) {
+            const offsetX = targetX - start.x;
+            const offsetY = targetY - start.y;
+            const offsetZ = targetZ - start.z;
+            door.mesh.position.set(
+                door.data.meshStartPos.x + offsetX,
+                door.data.meshStartPos.y + offsetY,
+                door.data.meshStartPos.z + offsetZ
+            );
+        }
+    }
+
+    /**
+     * func_wall — Solid wall that toggles texture frame on use (misc.qc:597-607)
+     */
+    setupFuncWall(wall, entData) {
+        wall.solid = 'bsp';
+        wall.moveType = 'push';
+        wall.data.frame = 0;
+
+        wall.use = (self, activator, game) => {
+            // Toggle between frame 0 and 1 (alternate texture)
+            self.data.frame = self.data.frame ? 0 : 1;
+            if (self.mesh && game.renderer && game.renderer.bspRenderer) {
+                game.renderer.bspRenderer.setBrushModelFrame(self.mesh, self.data.frame);
+            }
+        };
+
+        console.log(`Spawned func_wall`);
+    }
+
+    /**
+     * trap_spikeshooter / trap_shooter — Fires spike/laser on trigger (misc.qc:415-449)
+     * Spawnflags: 1=superspike, 2=laser
+     * trap_shooter auto-fires every 'wait' seconds
+     */
+    spawnTrap(classname, position, entData) {
+        const trap = this.game.entities.spawn();
+        if (!trap) return null;
+
+        trap.classname = classname;
+        trap.category = 'func';
+        trap.position = { ...position };
+        trap.moveType = 'none';
+        trap.solid = 'not';  // Non-solid
+
+        trap.targetname = entData.targetname || '';
+        trap.spawnflags = parseInt(entData.spawnflags) || 0;
+
+        // SetMovedir from angles (misc.qc uses makevectors on angles)
+        const angle = entData._angle || 0;
+        let moveDir;
+        if (angle === -1) {
+            moveDir = { x: 0, y: 0, z: 1 };  // Up
+        } else if (angle === -2) {
+            moveDir = { x: 0, y: 0, z: -1 }; // Down
+        } else {
+            const rad = angle * Math.PI / 180;
+            moveDir = { x: Math.cos(rad), y: Math.sin(rad), z: 0 };
+        }
+        trap.data.moveDir = moveDir;
+
+        const isSuper = (trap.spawnflags & 1) !== 0;
+        const isLaser = (trap.spawnflags & 2) !== 0;
+        trap.data.isSuper = isSuper;
+        trap.data.isLaser = isLaser;
+        trap.data.damage = isSuper ? 18 : 9;  // Superspike does 18, normal 9
+
+        // Use = fire spike
+        trap.use = (self, activator, game) => {
+            this.trapFire(self, game);
+        };
+
+        // trap_shooter auto-fires on interval
+        if (classname === 'trap_shooter') {
+            const wait = parseFloat(entData.wait) || 1.0;
+            trap.data.wait = wait;
+            trap.data.nextFire = this.game.time + wait;
+
+            trap.think = (self, game, dt) => {
+                if (game.time >= self.data.nextFire) {
+                    this.trapFire(self, game);
+                    self.data.nextFire = game.time + self.data.wait;
+                }
+            };
+        }
+
+        this.game.entities.addToCategory(trap);
+
+        console.log(`Spawned ${classname} dir=(${moveDir.x.toFixed(1)}, ${moveDir.y.toFixed(1)}, ${moveDir.z.toFixed(1)})`);
+        return trap;
+    }
+
+    trapFire(trap, game) {
+        const dir = trap.data.moveDir;
+        const speed = 500;  // Original Quake: 500 units/sec for spikes
+
+        const projectile = game.entities.spawn();
+        if (!projectile) return;
+
+        projectile.classname = 'nail';
+        projectile.category = 'projectile';
+        projectile.moveType = 'fly';
+        projectile.solid = 'bbox';
+
+        projectile.position = { ...trap.position };
+        projectile.velocity = {
+            x: dir.x * speed,
+            y: dir.y * speed,
+            z: dir.z * speed
+        };
+
+        projectile.data.damage = trap.data.damage;
+        projectile.data.owner = trap;
+        projectile.data.isSuper = trap.data.isSuper;
+        projectile.data.spawnTime = game.time;
+        projectile.data.lifetime = 6.0;
+
+        // Reuse nail think/touch from Weapons.js if available,
+        // otherwise provide basic timeout cleanup
+        projectile.think = (self, g) => {
+            if (g.time >= self.data.spawnTime + self.data.lifetime) {
+                if (g.effects) g.effects.removeProjectileVisual(self);
+                g.entities.remove(self);
+                if (g.physics) g.physics.removeEntity(self);
+            }
+        };
+        projectile.nextThink = game.time + 0.05;
+
+        projectile.touch = (self, other, g) => {
+            if (other === trap) return;  // Don't hit self
+            if (other.classname === 'nail') return;  // Don't hit other nails
+
+            // Deal damage
+            if (other.health !== undefined && other.health > 0) {
+                if (g.dealDamage) {
+                    g.dealDamage(other, self.data.damage, trap, self);
+                }
+            }
+
+            // Remove nail
+            if (g.effects) g.effects.removeProjectileVisual(self);
+            g.entities.remove(self);
+            if (g.physics) g.physics.removeEntity(self);
+        };
+
+        // Visual trail
+        if (game.effects) {
+            game.effects.attachProjectileTrail(projectile, trap.data.isSuper ? 'super_nail' : 'nail');
+        }
+
+        game.entities.addToCategory(projectile);
+        if (game.physics) {
+            game.physics.addEntity(projectile);
+        }
+
+        // Play shoot sound
+        if (game.audio) {
+            game.audio.playPositioned('sound/weapons/spike2.wav', trap.position);
+        }
     }
 }

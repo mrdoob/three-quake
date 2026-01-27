@@ -1,4 +1,4 @@
-import { IT, playerGiveWeapon, playerGiveAmmo, playerGiveHealth, playerGiveArmor } from '../entities/Player.js';
+import { IT, WEAPON, playerGiveWeapon, playerGiveAmmo, playerGiveHealth, playerGiveArmor } from '../entities/Player.js';
 
 /**
  * Items - Item definitions and pickup behavior
@@ -17,11 +17,13 @@ export const ITEM_TYPES = {
         model: 'maps/b_bh100.bsp',
         sound: 'items/r_item2.wav',
         amount: 100,
-        respawnTime: 20,
+        respawnTime: 0,  // Megahealth doesn't respawn on timer — respawns when health rot finishes
         pickup: (player, item) => {
             const result = playerGiveHealth(player, 100, 250);
             if (result) {
                 player.items |= IT.SUPERHEALTH;
+                // Link item to player for respawn when rot finishes (original Quake behavior)
+                player.megahealthItem = item;
             }
             return result;
         }
@@ -462,5 +464,117 @@ export function updateItems(game, deltaTime) {
                 game.renderer.aliasRenderer.updateShading(item.mesh, lightLevel);
             }
         }
+    }
+}
+
+/**
+ * Drop a backpack containing the player's ammo on death (original Quake items.qc:1636-1684)
+ * Called from playerDie in Player.js
+ */
+export async function dropBackpack(player, game) {
+    if (!game.entities) return;
+
+    // Don't drop if player has no ammo worth dropping
+    const ammo = player.ammo;
+    if (ammo.shells <= 0 && ammo.nails <= 0 && ammo.rockets <= 0 && ammo.cells <= 0) return;
+
+    const backpack = game.entities.spawn();
+    if (!backpack) return;
+
+    backpack.classname = 'backpack';
+    backpack.category = 'item';
+    backpack.position = { ...player.position };
+    backpack.moveType = 'toss';
+    backpack.solid = 'trigger';
+    backpack.hull = {
+        mins: { x: -16, y: -16, z: 0 },
+        maxs: { x: 16, y: 16, z: 56 }
+    };
+
+    // Store ammo contents
+    backpack.data.shells = ammo.shells;
+    backpack.data.nails = ammo.nails;
+    backpack.data.rockets = ammo.rockets;
+    backpack.data.cells = ammo.cells;
+    backpack.data.weapon = player.currentWeapon;
+    backpack.data.rotationAngle = 0;
+
+    // Toss velocity: upward + random horizontal
+    backpack.velocity = {
+        x: (Math.random() - 0.5) * 200,
+        y: (Math.random() - 0.5) * 200,
+        z: 300
+    };
+
+    // Auto-remove after 120 seconds (original Quake: SUB_Remove nextthink = time + 120)
+    backpack.data.removeTime = game.time + 120;
+
+    // Load backpack model
+    if (game.renderer) {
+        try {
+            const modelData = await game.renderer.loadModel('progs/backpack.mdl', game.pak);
+            if (modelData) {
+                const mesh = game.renderer.createModelInstance(modelData);
+                if (mesh) {
+                    backpack.mesh = mesh;
+                    mesh.position.set(backpack.position.x, backpack.position.y, backpack.position.z);
+                    game.renderer.addToScene(mesh);
+                }
+            }
+        } catch (e) {
+            // Backpack model may not be available, that's fine
+        }
+    }
+
+    backpack.touch = (self, other, game) => {
+        if (other.classname !== 'player') return;
+
+        // Give ammo to picking-up player
+        if (self.data.shells > 0) playerGiveAmmo(other, 'shells', self.data.shells);
+        if (self.data.nails > 0) playerGiveAmmo(other, 'nails', self.data.nails);
+        if (self.data.rockets > 0) playerGiveAmmo(other, 'rockets', self.data.rockets);
+        if (self.data.cells > 0) playerGiveAmmo(other, 'cells', self.data.cells);
+
+        // Give weapon if player doesn't have it
+        const weaponFlags = {
+            [WEAPON.SUPER_SHOTGUN]: IT.SUPER_SHOTGUN,
+            [WEAPON.NAILGUN]: IT.NAILGUN,
+            [WEAPON.SUPER_NAILGUN]: IT.SUPER_NAILGUN,
+            [WEAPON.GRENADE_LAUNCHER]: IT.GRENADE_LAUNCHER,
+            [WEAPON.ROCKET_LAUNCHER]: IT.ROCKET_LAUNCHER,
+            [WEAPON.LIGHTNING]: IT.LIGHTNING
+        };
+        const wpnFlag = weaponFlags[self.data.weapon];
+        if (wpnFlag) {
+            playerGiveWeapon(other, wpnFlag);
+        }
+
+        // Bonus flash and pickup sound
+        other.bonusTime = 0.4;
+        if (game.audio) {
+            game.audio.playLocal('sound/weapons/lock4.wav');
+        }
+
+        // Remove backpack
+        if (self.mesh && game.renderer) {
+            game.renderer.removeFromScene(self.mesh);
+        }
+        game.entities.remove(self);
+    };
+
+    backpack.think = (self, game) => {
+        // Auto-remove after timeout
+        if (game.time >= self.data.removeTime) {
+            if (self.mesh && game.renderer) {
+                game.renderer.removeFromScene(self.mesh);
+            }
+            game.entities.remove(self);
+        }
+    };
+    backpack.nextThink = game.time + 1;
+
+    game.entities.addToCategory(backpack);
+    if (game.physics) {
+        game.physics.addEntity(backpack);
     }
 }

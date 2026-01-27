@@ -1,4 +1,5 @@
 import { PHYSICS } from '../physics/Physics.js';
+import { dropBackpack } from '../game/Items.js';
 
 /**
  * Player - Player entity setup and behavior
@@ -117,6 +118,16 @@ export function createPlayer(entityManager, position, angles) {
     player.invisibleTime = 0;
     player.suitTime = 0;
 
+    // Powerup warning flags (original Quake client.qc:975-1143)
+    player.quadWarningPlayed = false;
+    player.invincibleWarningPlayed = false;
+    player.invisibleWarningPlayed = false;
+    player.suitWarningPlayed = false;
+
+    // Fall damage tracking
+    player.lastVelocityZ = 0;
+    player.wasOnGround = false;
+
     entityManager.addToCategory(player);
 
     return player;
@@ -137,41 +148,30 @@ export function playerThink(player, game) {
         if (!player.megahealthDecayTime || time >= player.megahealthDecayTime) {
             player.health -= 1;
             player.megahealthDecayTime = time + 1;
-            // Remove superhealth flag when back to normal
+            // Remove superhealth flag when back to normal and trigger item respawn
             if (player.health <= player.maxHealth) {
                 player.items &= ~IT.SUPERHEALTH;
+                // Trigger megahealth item respawn (original Quake: item respawns when rot finishes)
+                if (player.megahealthItem && player.megahealthItem.data) {
+                    player.megahealthItem.data.respawnTime = time + 20;
+                    player.megahealthItem = null;
+                }
             }
         }
     }
 
-    // Update power-up timers
-    if (player.quadTime > 0) {
-        player.quadTime -= game.deltaTime;
-        if (player.quadTime <= 0) {
-            player.items &= ~IT.QUAD;
-        }
-    }
+    // Update power-up timers with warnings (original Quake client.qc:975-1143)
+    updatePowerup(player, game, 'quadTime', IT.QUAD, 'quadWarningPlayed',
+        'sound/items/damage2.wav', 'Quad Damage is wearing off');
+    updatePowerup(player, game, 'invincibleTime', IT.INVULNERABILITY, 'invincibleWarningPlayed',
+        'sound/items/protect2.wav', 'Protection is almost burned out');
+    updatePowerup(player, game, 'invisibleTime', IT.INVISIBILITY, 'invisibleWarningPlayed',
+        'sound/items/inv2.wav', 'Ring of Shadows magic is fading');
+    updatePowerup(player, game, 'suitTime', IT.SUIT, 'suitWarningPlayed',
+        'sound/items/suit2.wav', 'Air supply in Biosuit expiring');
 
-    if (player.invincibleTime > 0) {
-        player.invincibleTime -= game.deltaTime;
-        if (player.invincibleTime <= 0) {
-            player.items &= ~IT.INVULNERABILITY;
-        }
-    }
-
-    if (player.invisibleTime > 0) {
-        player.invisibleTime -= game.deltaTime;
-        if (player.invisibleTime <= 0) {
-            player.items &= ~IT.INVISIBILITY;
-        }
-    }
-
-    if (player.suitTime > 0) {
-        player.suitTime -= game.deltaTime;
-        if (player.suitTime <= 0) {
-            player.items &= ~IT.SUIT;
-        }
-    }
+    // Check fall damage and landing sounds
+    checkFallDamage(player, game);
 
     // Check for water/drowning damage
     // Original Quake: 12 seconds of air, then 2 damage per second
@@ -228,6 +228,79 @@ function checkWaterDamage(player, game) {
             player.airFinished = game.time + 12;
         }
     }
+}
+
+/**
+ * Update a powerup timer with warning sounds (original Quake client.qc CheckPowerups)
+ * At 3 seconds remaining: play warning sound, print message, flash screen each second
+ */
+function updatePowerup(player, game, timeField, itemFlag, warningField, warningSound, warningMessage) {
+    if (player[timeField] <= 0) return;
+
+    player[timeField] -= game.deltaTime;
+
+    if (player[timeField] <= 3 && player[timeField] > 0) {
+        // Warning phase: last 3 seconds
+        if (!player[warningField]) {
+            player[warningField] = true;
+            if (game.audio) {
+                game.audio.playLocal(warningSound);
+            }
+            if (game.showCenterPrint) {
+                game.showCenterPrint(warningMessage);
+            }
+        }
+        // Screen flash each second in last 3 seconds (bf effect)
+        // Use floor to detect second transitions
+        const prevSec = Math.floor(player[timeField] + game.deltaTime);
+        const curSec = Math.floor(player[timeField]);
+        if (curSec < prevSec) {
+            player.bonusTime = 0.4;
+        }
+    }
+
+    if (player[timeField] <= 0) {
+        player[timeField] = 0;
+        player.items &= ~itemFlag;
+        player[warningField] = false;
+    }
+}
+
+/**
+ * Check for fall damage and landing sounds (original Quake client.qc PlayerPostThink)
+ * velocity.z < -300: landing sound
+ * velocity.z < -650: fall damage (5 damage per threshold)
+ */
+function checkFallDamage(player, game) {
+    // Detect ground landing transition
+    if (player.onGround && !player.wasOnGround) {
+        const fallSpeed = player.lastVelocityZ;
+
+        if (fallSpeed < -650) {
+            // Fall damage: 5 damage (original Quake: T_Damage(self, world, world, 5))
+            playerTakeDamage(player, 5, null, game);
+        }
+
+        if (fallSpeed < -300) {
+            // Landing sound
+            if (game.audio) {
+                if (player.waterLevel >= 1) {
+                    // Water landing
+                    game.audio.playLocal('sound/player/h2ojump.wav');
+                } else {
+                    // Ground landing — random between land and land2
+                    const sound = Math.random() < 0.5
+                        ? 'sound/player/land.wav'
+                        : 'sound/player/land2.wav';
+                    game.audio.playLocal(sound);
+                }
+            }
+        }
+    }
+
+    // Track state for next frame
+    player.lastVelocityZ = player.velocity.z;
+    player.wasOnGround = player.onGround;
 }
 
 function updateViewBob(player, deltaTime) {
@@ -308,6 +381,9 @@ export function playerDie(player, attacker, game) {
     player.health = 0;
     player.moveType = 'none';
     player.solid = 'not';
+
+    // Drop backpack with current ammo (original Quake items.qc DropBackpack)
+    dropBackpack(player, game);
 
     // Play death sound
     if (game.audio) {
