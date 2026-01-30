@@ -16,10 +16,10 @@ import {
 	cl, cls, cl_entities, entity_t
 } from './client.js';
 import { cl_forwardspeed } from './cl_input.js';
-import { R_RenderView } from './gl_rmain.js';
+import { R_RenderView, R_UpdateVRCamera } from './gl_rmain.js';
 import { R_PushDlights } from './gl_rlight.js';
 import { con_forcedup } from './console.js';
-import { VID_UpdateGamma } from './vid.js';
+import { VID_UpdateGamma, VID_IsInVR } from './vid.js';
 import { cl_simorg, cl_simvel, cl_simangles, cl_simonground, cl_nopred } from './cl_pred.js';
 
 /*
@@ -925,6 +925,14 @@ export function V_RenderView() {
 	}
 
 	R_PushDlights( cl );
+
+	// In VR mode, update the camera rig position
+	if ( VID_IsInVR() ) {
+
+		R_UpdateVRCamera( r_refdef.vieworg );
+
+	}
+
 	R_RenderView();
 
 }

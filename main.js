@@ -8,9 +8,12 @@ import { COM_FetchPak, COM_AddPack, COM_PreloadMaps } from './src/pak.js';
 import { Cbuf_AddText } from './src/cmd.js';
 import { cls, cl } from './src/client.js';
 import { sv } from './src/server.js';
-import { scene, camera } from './src/gl_rmain.js';
-import { renderer } from './src/vid.js';
+import { scene, camera, R_GetScene, R_SetVRBaseYaw } from './src/gl_rmain.js';
+import { renderer, VID_InitXR, VID_IsInVR, VID_GetXRManager, VID_SetAnimationLoop, VID_RotateWorldForVR, VID_ResetWorldRotation } from './src/vid.js';
 import { Draw_CachePicFromPNG } from './src/gl_draw.js';
+import { XR_Update } from './src/xr_manager.js';
+import { key_dest, key_menu, key_game, set_key_dest } from './src/keys.js';
+import { M_ToggleMenu_f } from './src/menu.js';
 
 const parms = {
 	basedir: '.',
@@ -126,21 +129,111 @@ async function main() {
 		Object.defineProperty( window, 'camera', { get: () => camera } );
 		Object.defineProperty( window, 'renderer', { get: () => renderer } );
 
-		let oldtime = performance.now() / 1000;
+		// Initialize WebXR if supported
+		let xrManager = null;
+		try {
 
-		function frame() {
+			const gameScene = R_GetScene();
+			xrManager = await VID_InitXR( gameScene, document.body );
 
-			const newtime = performance.now() / 1000;
-			const time = newtime - oldtime;
-			oldtime = newtime;
+			if ( xrManager ) {
 
-			Host_Frame( time );
+				Sys_Printf( 'WebXR initialized\\n' );
 
-			requestAnimationFrame( frame );
+				// Handle VR session start
+				xrManager.onSessionStart = () => {
+
+					console.log( 'VR session started (main.js)' );
+
+					// Rotate world for VR coordinate system
+					VID_RotateWorldForVR();
+
+					// Capture the current yaw as the base for VR rotation
+					// This ensures the camera rig starts at 0 rotation
+					if ( cl && cl.viewangles ) {
+
+						R_SetVRBaseYaw( cl.viewangles[ 1 ] ); // YAW is index 1
+
+					}
+
+					// Add camera to XR rig when entering VR
+					const cameraRig = xrManager.getCameraRig();
+					cameraRig.add( camera );
+					camera.position.set( 0, 0, 0 );
+					camera.rotation.set( 0, 0, 0 );
+
+					// If in menu, switch to game mode
+					if ( key_dest === key_menu ) {
+
+						set_key_dest( key_game );
+
+					}
+
+					// Start a new game if not already running
+					if ( ! sv.active && ! cls.demoplayback ) {
+
+						Cbuf_AddText( 'map start\\n' );
+
+					}
+
+				};
+
+				// Handle VR session end
+				xrManager.onSessionEnd = () => {
+
+					console.log( 'VR session ended (main.js)' );
+
+					// Remove camera from XR rig
+					const cameraRig = xrManager.getCameraRig();
+					cameraRig.remove( camera );
+					gameScene.add( camera );
+
+					// Reset world rotation
+					VID_ResetWorldRotation();
+
+					// Show menu
+					M_ToggleMenu_f();
+
+				};
+
+				// Handle trigger fire in VR
+				xrManager.onFire = () => {
+
+					// Fire is handled through input state polling in IN_Move
+					// This callback is for immediate feedback if needed
+
+				};
+
+			}
+
+		} catch ( e ) {
+
+			Sys_Printf( 'WebXR initialization failed: ' + e.message + '\\n' );
 
 		}
 
-		requestAnimationFrame( frame );
+		let oldtime = performance.now() / 1000;
+
+		function frame( time, xrFrame ) {
+
+			const newtime = performance.now() / 1000;
+			const frameTime = newtime - oldtime;
+			oldtime = newtime;
+
+			// Update XR input state each frame
+			if ( VID_IsInVR() ) {
+
+				XR_Update( frameTime );
+
+			}
+
+			Host_Frame( frameTime );
+
+		}
+
+		// Use setAnimationLoop for WebXR compatibility
+		// This handles both VR and non-VR rendering properly
+		VID_SetAnimationLoop( frame );
 
 	} catch ( e ) {
 

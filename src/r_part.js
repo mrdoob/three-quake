@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { VectorCopy, VectorSubtract, VectorNormalize, VectorAdd, vec3_origin } from './mathlib.js';
-import { d_8to24table } from './vid.js';
+import { d_8to24table, VID_GetWorldContainer } from './vid.js';
 import { cl as client_cl } from './client.js';
 import { gl_texturemode, GL_RegisterTexture } from './glquake.js';
 
@@ -751,7 +751,17 @@ export function R_DrawParticles() {
 
 	if ( ! pointsMesh.parent ) {
 
-		_scene.add( pointsMesh );
+		// Add to world container for VR coordinate system support
+		const worldContainer = VID_GetWorldContainer();
+		if ( worldContainer ) {
+
+			worldContainer.add( pointsMesh );
+
+		} else {
+
+			_scene.add( pointsMesh );
+
+		}
 
 	}
 

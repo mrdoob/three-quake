@@ -7,6 +7,7 @@ import { MAXLIGHTMAPS, d_lightstylevalue, r_framecount,
 	gl_flashblend, v_blend } from './glquake.js';
 import { r_origin, vpn, vright, vup } from './render.js';
 import { cl_dlights } from './client.js';
+import { VID_GetWorldContainer } from './vid.js';
 
 export const MAX_DLIGHTS = 32;
 
@@ -158,10 +159,19 @@ export function R_RenderDlights( cl, scene ) {
 			pointLight.intensity = l.radius * 5;
 			pointLight.decay = 1; // Linear falloff
 
-			// Add to scene if not already there
-			if ( scene != null && pointLight.parent == null ) {
+			// Add to world container for VR coordinate system support, or scene if not available
+			if ( pointLight.parent == null ) {
 
-				scene.add( pointLight );
+				const worldContainer = VID_GetWorldContainer();
+				if ( worldContainer ) {
+
+					worldContainer.add( pointLight );
+
+				} else if ( scene != null ) {
+
+					scene.add( pointLight );
+
+				}
 
 			}
 

@@ -48,6 +48,34 @@
 			height: 100%;
 			background: #fff;
 		}
+
+		/* VR Button styling */
+		#vr-button {
+			position: absolute;
+			bottom: 60px;
+			left: 50%;
+			transform: translateX(-50%);
+			padding: 12px 24px;
+			border: 1px solid #c06020;
+			border-radius: 4px;
+			background: rgba(26, 10, 0, 0.8);
+			color: #c06020;
+			font: normal 14px 'Courier New', monospace;
+			text-align: center;
+			cursor: pointer;
+			z-index: 999;
+			transition: background 0.2s, color 0.2s;
+		}
+
+		#vr-button:hover {
+			background: #c06020;
+			color: #1a0a00;
+		}
+
+		#vr-button:disabled {
+			opacity: 0.5;
+			cursor: not-allowed;
+		}
 	</style>
 </head>
 <body>

@@ -352,6 +352,9 @@ export function SV_AirMove() {
 
 	const wishvel = new Float32Array( 3 );
 
+	// Debug: log angles being used for movement
+	console.log( 'SV_AirMove: angles.YAW=', sv_player.v.angles[ YAW ], 'v_angle.YAW=', sv_player.v.v_angle[ 1 ] );
+
 	AngleVectors( sv_player.v.angles, forward, right, up );
 
 	let fmove = cmd.forwardmove;
@@ -479,6 +482,14 @@ export function SV_ReadClientMove( move ) {
 	// read current angles
 	for ( let i = 0; i < 3; i ++ )
 		angle[ i ] = MSG_ReadAngle();
+
+	// Debug: log when yaw changes significantly
+	const prevYaw = host_client.edict.v.v_angle[ 1 ];
+	if ( Math.abs( angle[ 1 ] - prevYaw ) > 1 ) {
+
+		console.log( 'SV_ReadClientMove: received YAW=', angle[ 1 ], 'prev=', prevYaw, 'delta=', ( angle[ 1 ] - prevYaw ) );
+
+	}
 
 	VectorCopy( angle, host_client.edict.v.v_angle );
 

@@ -40,6 +40,7 @@ import {
 	inc_c_brush_polys, set_currenttexture,
 	set_r_oldviewleaf, set_mirror, set_mirror_plane
 } from './gl_rmain.js';
+import { VID_GetWorldContainer } from './vid.js';
 import {
 	DotProduct, VectorCopy, VectorSubtract, VectorAdd, VectorNormalize,
 	AngleVectors, Length
@@ -1281,8 +1282,18 @@ export function R_DrawBrushModel( e ) {
 
 	}
 
-	// Add to scene (will be removed next frame by R_DrawWorld cleanup)
-	if ( scene && ! brushGroup.parent ) scene.add( brushGroup );
+	// Add to world container for VR coordinate system support
+	const worldContainer = VID_GetWorldContainer();
+	if ( worldContainer && ! brushGroup.parent ) {
+
+		worldContainer.add( brushGroup );
+
+	} else if ( scene && ! brushGroup.parent ) {
+
+		scene.add( brushGroup );
+
+	}
+
 	brushEntityGroups.push( brushGroup );
 
 }
@@ -1450,7 +1461,17 @@ export function R_DrawWorld() {
 
 		worldGroup = new THREE.Group();
 		worldGroup.name = 'quake_world';
-		if ( scene ) scene.add( worldGroup );
+		// Add to world container for VR coordinate system support
+		const worldContainer = VID_GetWorldContainer();
+		if ( worldContainer ) {
+
+			worldContainer.add( worldGroup );
+
+		} else if ( scene ) {
+
+			scene.add( worldGroup );
+
+		}
 
 	}
 
@@ -2140,7 +2161,17 @@ function R_BuildWorldMeshes() {
 
 		worldGroup = new THREE.Group();
 		worldGroup.name = 'quake_world';
-		if ( scene ) scene.add( worldGroup );
+		// Add to world container for VR coordinate system support
+		const worldContainer = VID_GetWorldContainer();
+		if ( worldContainer ) {
+
+			worldContainer.add( worldGroup );
+
+		} else if ( scene ) {
+
+			scene.add( worldGroup );
+
+		}
 
 	}
 

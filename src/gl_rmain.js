@@ -6,7 +6,8 @@ import { Sys_Error, Sys_FloatTime } from './sys.js';
 import { Con_Printf, Con_DPrintf, COM_CheckParm } from './common.js';
 import { PITCH, YAW, ROLL } from './quakedef.js';
 import { cvar_t } from './cvar.js';
-import { vid, renderer } from './vid.js';
+import { vid, renderer, VID_CreateWorldContainer, VID_GetWorldContainer, VID_IsInVR, VID_GetXRManager, VID_RotateWorldForVR, VID_ResetWorldRotation } from './vid.js';
+import { XR_GetAccumulatedSnapTurn } from './xr_manager.js';
 import { r_refdef, r_origin, vpn, vright, vup, entity_t } from './render.js';
 import {
 	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorMA,
@@ -691,7 +692,18 @@ function R_DrawAliasModel( e ) {
 
 		if ( ! _entityMeshesInScene.has( mesh ) ) {
 
-			scene.add( mesh );
+			// Add to world container for VR coordinate system support
+			const worldContainer = VID_GetWorldContainer();
+			if ( worldContainer ) {
+
+				worldContainer.add( mesh );
+
+			} else {
+
+				scene.add( mesh );
+
+			}
+
 			_entityMeshesInScene.add( mesh );
 
 		}
@@ -823,7 +835,18 @@ function R_DrawSpriteModel( e ) {
 
 		if ( ! _entityMeshesInScene.has( mesh ) ) {
 
-			scene.add( mesh );
+			// Add to world container for VR coordinate system support
+			const worldContainer = VID_GetWorldContainer();
+			if ( worldContainer ) {
+
+				worldContainer.add( mesh );
+
+			} else {
+
+				scene.add( mesh );
+
+			}
+
 			_entityMeshesInScene.add( mesh );
 
 		}
@@ -1013,6 +1036,11 @@ export function R_Init() {
 	scene = new THREE.Scene();
 	scene.background = new THREE.Color( 0x000000 );
 
+	// Create world container - holds all level geometry
+	// This can be rotated to convert coordinate systems for VR
+	const worldContainer = VID_CreateWorldContainer();
+	scene.add( worldContainer );
+
 	// initialize light style values to default
 	for ( let i = 0; i < 256; i ++ ) {
 
@@ -1133,5 +1161,108 @@ function R_RenderDlights() {
 function R_DrawParticles() {
 
 	R_DrawParticles_impl();
+
+}
+
+//============================================================================
+// R_GetScene
+//
+// Get the Three.js scene (for XR initialization)
+//============================================================================
+
+export function R_GetScene() {
+
+	return scene;
+
+}
+
+//============================================================================
+// R_UpdateVRCamera
+//
+// Update the VR camera rig position and rotation based on player state.
+// This is called instead of the normal camera update when in VR mode.
+//============================================================================
+
+// Track the base yaw when VR session starts
+let vrBaseYaw = 0;
+
+export function R_SetVRBaseYaw( yaw ) {
+
+	vrBaseYaw = yaw;
+
+}
+
+export function R_UpdateVRCamera( vieworg ) {
+
+	const xrManager = VID_GetXRManager();
+	if ( ! xrManager ) return;
+
+	// Position the camera rig at the player's location
+	// The coordinate transform is handled by XRManager.setPosition
+	xrManager.setPosition( vieworg[ 0 ], vieworg[ 1 ], vieworg[ 2 ] );
+
+	// Rotate the camera rig based on the yaw delta from session start
+	// This allows joystick rotation to turn the player while keeping
+	// movement direction synced with the visual rotation
+	if ( cl && cl.viewangles ) {
+
+		// Calculate the yaw change since VR session started
+		const yawDelta = cl.viewangles[ YAW ] - vrBaseYaw;
+
+		// Convert to radians and apply to camera rig
+		// Positive because turning right (decreasing yaw) should rotate the view right
+		const yawRadians = yawDelta * Math.PI / 180;
+		xrManager.setRotationY( yawRadians );
+
+	}
+
+}
+
+//============================================================================
+// R_GetVRViewAngles
+//
+// Get the view angles from the VR headset.
+// Returns the yaw angle in Quake degrees.
+//============================================================================
+
+export function R_GetVRViewAngles() {
+
+	const xrManager = VID_GetXRManager();
+	if ( ! xrManager || ! xrManager.isPresenting ) return null;
+
+	const xrCamera = xrManager.getXRCamera();
+	if ( ! xrCamera ) return null;
+
+	// Get the accumulated snap turn in degrees
+	const snapTurnDegrees = XR_GetAccumulatedSnapTurn();
+
+	// Get the XR camera's world quaternion (headset orientation)
+	const cameraQuat = new THREE.Quaternion();
+	xrCamera.getWorldQuaternion( cameraQuat );
+
+	// Extract euler from camera's world rotation
+	// In VR (Y-up), pitch is around X, yaw is around Y
+	const euler = new THREE.Euler();
+	euler.setFromQuaternion( cameraQuat, 'YXZ' );
+
+	// Convert headset yaw from radians to degrees
+	// Three.js: yaw=0 is -Z, positive yaw rotates counterclockwise (left)
+	// Quake: yaw=0 is +X, positive yaw rotates counterclockwise (left)
+	// Since world is rotated -90 around X, the yaw relationship:
+	// quakeYaw = -threeYaw * (180/PI)
+	const headsetYawDegrees = - euler.y * 180 / Math.PI;
+
+	// Total yaw = headset yaw + snap turn
+	const vrYawDegrees = headsetYawDegrees + snapTurnDegrees;
+
+	// Pitch: camera looking up/down
+	// In VR space (Y-up), pitch is euler.x
+	// Negative because looking down is positive euler.x but positive Quake pitch
+	const vrPitchDegrees = - euler.x * 180 / Math.PI;
+
+	return {
+		yaw: vrYawDegrees,
+		pitch: vrPitchDegrees
+	};
 
 }

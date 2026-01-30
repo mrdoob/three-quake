@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { Sys_Error, Sys_Printf } from './sys.js';
 import { Con_Printf } from './console.js';
+import { XR_Init, XR_IsSupported, XR_IsPresenting, XR_GetManager } from './xr_manager.js';
 
 //
 // vid.h constants
@@ -78,6 +79,10 @@ export let vid_menukeyfn = null;
 
 export let renderer = null; // THREE.WebGLRenderer
 export let canvas = null; // HTMLCanvasElement
+
+// World container - holds all level geometry
+// This can be rotated to convert coordinate systems for VR
+export let worldContainer = null; // THREE.Group
 
 //============================================================================
 // VID_SetPalette
@@ -315,5 +320,138 @@ export function VID_UpdateGamma( gamma ) {
 	// Base exposure of 1.5 to brighten the overall scene
 	// Map gamma 0.5->3.0, 1.0->1.5 using: exposure = 1.5 / gamma
 	renderer.toneMappingExposure = 1.5 / gamma;
+
+}
+
+//============================================================================
+// VID_InitXR
+//
+// Initialize WebXR support. Call after VID_Init.
+// Returns a promise that resolves to the XRManager or null if not supported.
+//============================================================================
+
+export async function VID_InitXR( scene, container ) {
+
+	if ( ! renderer ) {
+
+		Con_Printf( 'VID_InitXR: renderer not initialized\n' );
+		return null;
+
+	}
+
+	const xrManager = await XR_Init( renderer, scene, container || document.body );
+
+	if ( xrManager ) {
+
+		Con_Printf( 'VID_InitXR: WebXR initialized\n' );
+
+	}
+
+	return xrManager;
+
+}
+
+//============================================================================
+// VID_IsInVR
+//
+// Returns true if currently in VR mode
+//============================================================================
+
+export function VID_IsInVR() {
+
+	return XR_IsPresenting();
+
+}
+
+//============================================================================
+// VID_GetXRManager
+//
+// Get the XR manager instance
+//============================================================================
+
+export function VID_GetXRManager() {
+
+	return XR_GetManager();
+
+}
+
+//============================================================================
+// VID_SetAnimationLoop
+//
+// Set the animation loop for WebXR compatibility.
+// This uses renderer.setAnimationLoop which is required for WebXR.
+//============================================================================
+
+export function VID_SetAnimationLoop( callback ) {
+
+	if ( renderer ) {
+
+		renderer.setAnimationLoop( callback );
+
+	}
+
+}
+
+//============================================================================
+// VID_CreateWorldContainer
+//
+// Create and return the world container group.
+// Call this when initializing the scene.
+//============================================================================
+
+export function VID_CreateWorldContainer() {
+
+	worldContainer = new THREE.Group();
+	worldContainer.name = 'worldContainer';
+	return worldContainer;
+
+}
+
+//============================================================================
+// VID_GetWorldContainer
+//
+// Get the world container group
+//============================================================================
+
+export function VID_GetWorldContainer() {
+
+	return worldContainer;
+
+}
+
+//============================================================================
+// VID_RotateWorldForVR
+//
+// Rotate the world container to convert from Quake's Z-up to WebXR's Y-up.
+// Call when entering VR.
+//============================================================================
+
+export function VID_RotateWorldForVR() {
+
+	if ( worldContainer ) {
+
+		worldContainer.rotation.order = 'XYZ';
+		worldContainer.rotation.x = - Math.PI / 2;
+		Con_Printf( 'World container rotated for VR\n' );
+
+	}
+
+}
+
+//============================================================================
+// VID_ResetWorldRotation
+//
+// Reset world container rotation for non-VR mode.
+// Call when exiting VR.
+//============================================================================
+
+export function VID_ResetWorldRotation() {
+
+	if ( worldContainer ) {
+
+		worldContainer.rotation.set( 0, 0, 0 );
+		Con_Printf( 'World container rotation reset\n' );
+
+	}
 
 }

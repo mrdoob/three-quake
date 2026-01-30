@@ -17,7 +17,7 @@ import { Cmd_AddCommand } from './cmd.js';
 import { Con_Printf } from './console.js';
 import { cl, cls, ca_connected } from './client.js';
 import { m_pitch, m_yaw, m_forward, m_side, lookstrafe } from './cl_main.js';
-import { in_mlook, in_strafe, in_jump, cl_forwardspeed, cl_sidespeed } from './cl_input.js';
+import { in_mlook, in_strafe, in_jump, in_attack, cl_forwardspeed, cl_sidespeed } from './cl_input.js';
 import { V_StopPitchDrift } from './view.js';
 import { PITCH, YAW } from './quakedef.js';
 import {
@@ -27,6 +27,8 @@ import {
 } from './touch.js';
 import { M_TouchInput } from './menu.js';
 import { S_UnlockAudio } from './snd_dma.js';
+import { VID_IsInVR, VID_GetXRManager } from './vid.js';
+import { XR_GetInputState } from './xr_manager.js';
 
 /*
 ===========================================================================
@@ -102,6 +104,10 @@ let isMobile = false;
 
 // Wake Lock state (prevents screen from dimming/locking while playing)
 let wakeLock = null;
+
+// VR input edge detection state
+let prevVRFirePressed = false;
+let prevVRJumpPressed = false;
 
 // cvars (matching in_win.c)
 const m_filter = { name: 'm_filter', string: '0', value: 0 };
@@ -643,6 +649,92 @@ In the original, this called IN_MouseMove and IN_JoyMove.
 */
 export function IN_Move( cmd ) {
 
+	// Check if we're in VR mode
+	if ( VID_IsInVR() ) {
+
+		// Get VR controller input
+		const xrInput = XR_GetInputState();
+
+		if ( ! cmd ) return;
+
+		// Apply VR controller movement
+		cmd.forwardmove += cl_forwardspeed.value * xrInput.moveForward;
+		cmd.sidemove += cl_sidespeed.value * xrInput.moveRight;
+
+		// Handle jump from VR controller (edge detection)
+		if ( xrInput.jump && ! prevVRJumpPressed ) {
+
+			// Rising edge - just pressed
+			in_jump.state |= 1 + 2; // down + impulse down
+
+		} else if ( xrInput.jump ) {
+
+			// Held down
+			in_jump.state |= 1; // down (no impulse)
+
+		} else if ( prevVRJumpPressed ) {
+
+			// Falling edge - just released
+			in_jump.state &= ~1; // clear down
+			in_jump.state |= 4; // impulse up
+
+		}
+
+		prevVRJumpPressed = xrInput.jump;
+
+		// Handle attack from VR controller (edge detection)
+		if ( xrInput.firePressed && ! prevVRFirePressed ) {
+
+			// Rising edge - just pressed
+			in_attack.state |= 1 + 2; // down + impulse down
+
+		} else if ( xrInput.firePressed ) {
+
+			// Held down - keep down bit set, clear impulse
+			in_attack.state |= 1; // down (no impulse)
+			in_attack.state &= ~2; // clear impulse down
+
+		} else if ( prevVRFirePressed ) {
+
+			// Falling edge - just released
+			in_attack.state &= ~1; // clear down
+			in_attack.state |= 4; // impulse up
+
+		}
+
+		prevVRFirePressed = xrInput.firePressed;
+
+		// Apply right stick input to view angles (like mouse movement)
+		// This controls the player's direction for movement
+		const lookSpeed = sensitivity.value * 2.0; // Scale similar to mouse
+
+		// Debug: always log joystick values
+		if ( xrInput.moveForward !== 0 || xrInput.moveRight !== 0 || xrInput.lookX !== 0 || xrInput.lookY !== 0 ) {
+
+			console.log( 'VR input: moveF=', xrInput.moveForward, 'moveR=', xrInput.moveRight, 'lookX=', xrInput.lookX, 'lookY=', xrInput.lookY );
+
+		}
+
+		if ( xrInput.lookX !== 0 || xrInput.lookY !== 0 ) {
+
+			const oldYaw = cl.viewangles[ YAW ];
+			cl.viewangles[ YAW ] -= xrInput.lookX * lookSpeed;
+			cl.viewangles[ PITCH ] += xrInput.lookY * lookSpeed;
+			console.log( 'VR look update: oldYaw=', oldYaw, 'newYaw=', cl.viewangles[ YAW ], 'delta=', ( cl.viewangles[ YAW ] - oldYaw ) );
+
+		}
+
+		// Clamp pitch
+		if ( cl.viewangles[ PITCH ] > 80 )
+			cl.viewangles[ PITCH ] = 80;
+		if ( cl.viewangles[ PITCH ] < - 70 )
+			cl.viewangles[ PITCH ] = - 70;
+
+		return;
+
+	}
+
+	// Standard non-VR input handling
 	let { mx, my } = IN_MouseMove();
 
 	if ( ! cmd ) return;
@@ -746,6 +838,19 @@ Returns true if running on a mobile device
 export function IN_IsMobile() {
 
 	return isMobile;
+
+}
+
+/*
+===========
+IN_IsInVR
+
+Returns true if currently in VR mode
+===========
+*/
+export function IN_IsInVR() {
+
+	return VID_IsInVR();
 
 }
 
