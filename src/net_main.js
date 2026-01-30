@@ -394,6 +394,32 @@ const slistPollProcedure = new PollProcedure( null, 0.0, Slist_Poll );
 
 /*
 ===================
+WT_QueryRooms
+
+Stub for WebTorrent room query functionality
+===================
+*/
+export function WT_QueryRooms() {
+
+	// WebTorrent multiplayer not yet implemented
+
+}
+
+/*
+===================
+WT_CreateRoom
+
+Stub for WebTorrent room creation functionality
+===================
+*/
+export function WT_CreateRoom() {
+
+	// WebTorrent multiplayer not yet implemented
+
+}
+
+/*
+===================
 NET_Connect
 ===================
 */
