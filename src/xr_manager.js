@@ -340,6 +340,19 @@ export class XRManager {
 
 			if ( ! gamepad ) continue;
 
+			// Check for menu button on left controller (button index 12) to exit VR
+			if ( handedness === 'left' && gamepad.buttons.length > 12 ) {
+
+				const menuButton = gamepad.buttons[ 12 ];
+				if ( menuButton && menuButton.pressed ) {
+
+					this.endSession();
+					return;
+
+				}
+
+			}
+
 			// Debug: log gamepad info on first detection
 			if ( gamepad.axes.length > 0 ) {
 
@@ -444,6 +457,54 @@ export class XRManager {
 	}
 
 	/**
+	 * End the current VR session
+	 */
+	endSession() {
+
+		const session = this.renderer.xr.getSession();
+		if ( session ) {
+
+			session.end();
+
+		}
+
+	}
+
+	/**
+	 * Check if any controller button is currently pressed
+	 * @returns {boolean} True if any button is pressed
+	 */
+	isAnyButtonPressed() {
+
+		const session = this.renderer.xr.getSession();
+		if ( ! session || ! session.inputSources ) {
+
+			return false;
+
+		}
+
+		for ( const source of session.inputSources ) {
+
+			const gamepad = source.gamepad;
+			if ( ! gamepad ) continue;
+
+			for ( const button of gamepad.buttons ) {
+
+				if ( button && button.pressed ) {
+
+					return true;
+
+				}
+
+			}
+
+		}
+
+		return false;
+
+	}
+
+	/**
 	 * Get the XR camera (for positioning player)
 	 */
 	getXRCamera() {
@@ -488,6 +549,7 @@ export class XRManager {
 // Global XR manager instance and state
 let xrManager = null;
 let xrInitialized = false;
+let vrButton = null;
 
 /**
  * Check if WebXR is supported
@@ -513,6 +575,21 @@ export function XR_IsPresenting() {
 export function XR_GetManager() {
 
 	return xrManager;
+
+}
+
+/**
+ * Update VR button visibility based on game state
+ * @param {boolean} gameRunning - True if game is running (server active)
+ * @param {boolean} demoPlaying - True if demo is playing
+ */
+export function XR_UpdateVRButtonVisibility( gameRunning, demoPlaying ) {
+
+	if ( vrButton ) {
+
+		vrButton.style.display = ( gameRunning || demoPlaying ) ? '' : 'none';
+
+	}
 
 }
 
@@ -580,8 +657,9 @@ export async function XR_Init( renderer, scene, container ) {
 	}
 
 	// Always create VR button as fallback / alternative entry point
-	const vrButton = VRButton.createButton( renderer );
+	vrButton = VRButton.createButton( renderer );
 	vrButton.id = 'vr-button';
+	vrButton.style.display = 'none'; // Hidden until game is running or demo playing
 	container.appendChild( vrButton );
 
 	xrInitialized = true;

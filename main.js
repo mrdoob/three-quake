@@ -11,7 +11,7 @@ import { sv } from './src/server.js';
 import { scene, camera, R_GetScene, R_ResetVRBaseYaw } from './src/gl_rmain.js';
 import { renderer, VID_InitXR, VID_IsInVR, VID_GetXRManager, VID_SetAnimationLoop, VID_RotateWorldForVR, VID_ResetWorldRotation } from './src/vid.js';
 import { Draw_CachePicFromPNG } from './src/gl_draw.js';
-import { XR_Update } from './src/xr_manager.js';
+import { XR_Update, XR_UpdateVRButtonVisibility } from './src/xr_manager.js';
 import { key_dest, key_menu, key_game, set_key_dest } from './src/keys.js';
 import { M_ToggleMenu_f } from './src/menu.js';
 
@@ -213,10 +213,20 @@ async function main() {
 			const frameTime = newtime - oldtime;
 			oldtime = newtime;
 
+			// Update VR button visibility based on game state
+			XR_UpdateVRButtonVisibility( sv.active, cls.demoplayback );
+
 			// Update XR input state each frame
 			if ( VID_IsInVR() ) {
 
 				XR_Update( frameTime );
+
+				// Exit VR if any button is pressed during demo playback
+				if ( cls.demoplayback && xrManager && xrManager.isAnyButtonPressed() ) {
+
+					xrManager.endSession();
+
+				}
 
 			}
 

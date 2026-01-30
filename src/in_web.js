@@ -708,19 +708,10 @@ export function IN_Move( cmd ) {
 		// This controls the player's direction for movement
 		const lookSpeed = sensitivity.value * 2.0; // Scale similar to mouse
 
-		// Debug: always log joystick values
-		if ( xrInput.moveForward !== 0 || xrInput.moveRight !== 0 || xrInput.lookX !== 0 || xrInput.lookY !== 0 ) {
-
-			console.log( 'VR input: moveF=', xrInput.moveForward, 'moveR=', xrInput.moveRight, 'lookX=', xrInput.lookX, 'lookY=', xrInput.lookY );
-
-		}
-
 		if ( xrInput.lookX !== 0 || xrInput.lookY !== 0 ) {
 
-			const oldYaw = cl.viewangles[ YAW ];
 			cl.viewangles[ YAW ] -= xrInput.lookX * lookSpeed;
 			cl.viewangles[ PITCH ] += xrInput.lookY * lookSpeed;
-			console.log( 'VR look update: oldYaw=', oldYaw, 'newYaw=', cl.viewangles[ YAW ], 'delta=', ( cl.viewangles[ YAW ] - oldYaw ) );
 
 		}
 

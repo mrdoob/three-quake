@@ -353,14 +353,6 @@ export function CL_SendMove( cmd ) {
 
 	MSG_WriteFloat( buf, cl.mtime[ 0 ] ); // so server can get ping times
 
-	// Debug: log viewangles being sent when they change significantly
-	const prevYaw = cl.cmd?.viewangles || 0;
-	if ( Math.abs( cl.viewangles[ YAW ] - prevYaw ) > 1 ) {
-
-		console.log( 'CL_SendMove: sending YAW=', cl.viewangles[ YAW ] );
-
-	}
-
 	for ( let i = 0; i < 3; i ++ )
 		MSG_WriteAngle( buf, cl.viewangles[ i ] );
 
