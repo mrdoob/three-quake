@@ -1183,12 +1183,12 @@ export function R_GetScene() {
 // This is called instead of the normal camera update when in VR mode.
 //============================================================================
 
-// Track the base yaw when VR session starts
-let vrBaseYaw = 0;
+// Base yaw when VR session starts - used to offset camera rotation
+let vrBaseYaw = null;
 
-export function R_SetVRBaseYaw( yaw ) {
+export function R_ResetVRBaseYaw() {
 
-	vrBaseYaw = yaw;
+	vrBaseYaw = null;
 
 }
 
@@ -1198,19 +1198,20 @@ export function R_UpdateVRCamera( vieworg ) {
 	if ( ! xrManager ) return;
 
 	// Position the camera rig at the player's location
-	// The coordinate transform is handled by XRManager.setPosition
 	xrManager.setPosition( vieworg[ 0 ], vieworg[ 1 ], vieworg[ 2 ] );
 
-	// Rotate the camera rig based on the yaw delta from session start
-	// This allows joystick rotation to turn the player while keeping
-	// movement direction synced with the visual rotation
+	// Rotate the camera rig based on yaw change from session start
 	if ( cl && cl.viewangles ) {
 
-		// Calculate the yaw change since VR session started
-		const yawDelta = cl.viewangles[ YAW ] - vrBaseYaw;
+		// Capture base yaw on first call
+		if ( vrBaseYaw === null ) {
 
-		// Convert to radians and apply to camera rig
-		// Positive because turning right (decreasing yaw) should rotate the view right
+			vrBaseYaw = cl.viewangles[ YAW ];
+
+		}
+
+		// Apply only the delta from the base yaw
+		const yawDelta = cl.viewangles[ YAW ] - vrBaseYaw;
 		const yawRadians = yawDelta * Math.PI / 180;
 		xrManager.setRotationY( yawRadians );
 

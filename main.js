@@ -8,7 +8,7 @@ import { COM_FetchPak, COM_AddPack, COM_PreloadMaps } from './src/pak.js';
 import { Cbuf_AddText } from './src/cmd.js';
 import { cls, cl } from './src/client.js';
 import { sv } from './src/server.js';
-import { scene, camera, R_GetScene, R_SetVRBaseYaw } from './src/gl_rmain.js';
+import { scene, camera, R_GetScene, R_ResetVRBaseYaw } from './src/gl_rmain.js';
 import { renderer, VID_InitXR, VID_IsInVR, VID_GetXRManager, VID_SetAnimationLoop, VID_RotateWorldForVR, VID_ResetWorldRotation } from './src/vid.js';
 import { Draw_CachePicFromPNG } from './src/gl_draw.js';
 import { XR_Update } from './src/xr_manager.js';
@@ -148,14 +148,6 @@ async function main() {
 					// Rotate world for VR coordinate system
 					VID_RotateWorldForVR();
 
-					// Capture the current yaw as the base for VR rotation
-					// This ensures the camera rig starts at 0 rotation
-					if ( cl && cl.viewangles ) {
-
-						R_SetVRBaseYaw( cl.viewangles[ 1 ] ); // YAW is index 1
-
-					}
-
 					// Add camera to XR rig when entering VR
 					const cameraRig = xrManager.getCameraRig();
 					cameraRig.add( camera );
@@ -188,8 +180,9 @@ async function main() {
 					cameraRig.remove( camera );
 					gameScene.add( camera );
 
-					// Reset world rotation
+					// Reset world rotation and VR base yaw
 					VID_ResetWorldRotation();
+					R_ResetVRBaseYaw();
 
 					// Show menu
 					M_ToggleMenu_f();
