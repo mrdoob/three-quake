@@ -1137,14 +1137,19 @@ export function R_BuildLightMap( surf, dest, destOffset, stride ) {
 // R_DrawBrushModel
 //============================================================================
 
-// Euler object reused for brush entity rotation (avoid per-frame allocation)
-const _brushEuler = new THREE.Euler( 0, 0, 0, 'ZYX' );
+// Cached objects for R_DrawBrushModel to avoid per-entity allocations
+const _brushModel_mins = new Float32Array( 3 );
+const _brushModel_maxs = new Float32Array( 3 );
+const _brushModel_euler = new THREE.Euler( 0, 0, 0, 'ZYX' );
+const _brushModel_temp = new Float32Array( 3 );
+const _brushModel_forward = new Float32Array( 3 );
+const _brushModel_right = new Float32Array( 3 );
+const _brushModel_up = new Float32Array( 3 );
 
 export function R_DrawBrushModel( e ) {
 
-	// Use pre-allocated scratch arrays to avoid per-call allocations
-	const mins = _brushMins;
-	const maxs = _brushMaxs;
+	const mins = _brushModel_mins;
+	const maxs = _brushModel_maxs;
 	let rotated;
 
 	const clmodel = e.model;
@@ -1269,12 +1274,14 @@ export function R_DrawBrushModel( e ) {
 		const yaw = e.angles[ 1 ];
 		const roll = e.angles[ 2 ];
 
-		_brushEuler.set(
+		// R_RotateForEntity order: yaw around Z, -pitch around Y, roll around X
+		// Apply in reverse order for Three.js (which composes in XYZ order)
+		_brushModel_euler.set(
 			roll * ( Math.PI / 180 ),
 			- pitch * ( Math.PI / 180 ),
 			yaw * ( Math.PI / 180 )
 		);
-		brushGroup.quaternion.setFromEuler( _brushEuler );
+		brushGroup.quaternion.setFromEuler( _brushModel_euler );
 
 	} else {
 

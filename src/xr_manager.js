@@ -344,6 +344,7 @@ export class XRManager {
 		this.inputState.lookX = 0;
 		this.inputState.lookY = 0;
 		this.inputState.fire = false; // Reset fire, only set on edge
+		this.inputState.jump = false; // Reset jump each frame
 
 		// Update snap turn cooldown
 		if ( this.snapTurnCooldown > 0 ) {
@@ -433,31 +434,6 @@ export class XRManager {
 				}
 
 			}
-
-		}
-
-		// Reset jump if no jump button is pressed on any controller
-		// (checked after looping through all controllers)
-		let anyJumpPressed = false;
-		for ( const source of inputSources ) {
-
-			const gamepad = source.gamepad;
-			if ( gamepad && gamepad.buttons.length > 4 ) {
-
-				if ( gamepad.buttons[ 4 ] && gamepad.buttons[ 4 ].pressed ) {
-
-					anyJumpPressed = true;
-					break;
-
-				}
-
-			}
-
-		}
-
-		if ( ! anyJumpPressed ) {
-
-			this.inputState.jump = false;
 
 		}
 

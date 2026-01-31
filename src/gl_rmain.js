@@ -322,6 +322,12 @@ export function R_SetupFrame() {
 // to match Quake's projection and modelview matrices.
 //============================================================================
 
+// Cached objects to avoid per-frame allocations
+const _setupGL_forward = new Float32Array( 3 );
+const _setupGL_right = new Float32Array( 3 );
+const _setupGL_up = new Float32Array( 3 );
+const _setupGL_matrix = new THREE.Matrix4();
+
 export function R_SetupGL() {
 
 	const screenaspect = r_refdef.vrect.width / r_refdef.vrect.height;
@@ -387,9 +393,9 @@ export function R_SetupGL() {
 	);
 
 	// Build orientation using AngleVectors to get forward/right/up
-	const forward = new Float32Array( 3 );
-	const right = new Float32Array( 3 );
-	const up = new Float32Array( 3 );
+	const forward = _setupGL_forward;
+	const right = _setupGL_right;
+	const up = _setupGL_up;
 	AngleVectors( r_refdef.viewangles, forward, right, up );
 
 	// Build a rotation matrix from the Quake basis vectors.
@@ -397,7 +403,7 @@ export function R_SetupGL() {
 	// Three.js camera looks down -Z, X=right, Y=up.
 	// GLQuake uses glCullFace(GL_FRONT) to cull front faces (keeping back faces).
 	// We match this with THREE.BackSide on materials.
-	const m = new THREE.Matrix4();
+	const m = _setupGL_matrix;
 	m.set(
 		right[ 0 ], up[ 0 ], - forward[ 0 ], r_refdef.vieworg[ 0 ],
 		right[ 1 ], up[ 1 ], - forward[ 1 ], r_refdef.vieworg[ 1 ],
@@ -913,7 +919,7 @@ export function R_PolyBlend() {
 export function R_RenderScene() {
 
 	// Begin new frame: clear the "this frame" set
-	_entityMeshesThisFrame = new Set();
+	_entityMeshesThisFrame.clear();
 
 	// Dynamic lights are managed by R_RenderDlights - it updates intensity
 	// each frame and removes expired lights from scene
@@ -1217,6 +1223,10 @@ export function R_UpdateVRCamera( vieworg ) {
 // Returns the yaw angle in Quake degrees.
 //============================================================================
 
+// Cached objects for VR view angle calculation
+const _vrViewAngles_euler = new THREE.Euler();
+const _vrViewAngles_result = { yaw: 0, pitch: 0 };
+
 export function R_GetVRViewAngles() {
 
 	const xrManager = VID_GetXRManager();
@@ -1230,32 +1240,24 @@ export function R_GetVRViewAngles() {
 	// Get the accumulated smooth turn (from right stick) in degrees
 	const smoothTurnDegrees = XR_GetAccumulatedSmoothTurn();
 
-	// Get the XR camera's LOCAL quaternion (relative to camera rig, not world)
-	// This gives us just the headset orientation without the rig rotation
-	const cameraQuat = xrCamera.quaternion.clone();
-
-	// Extract euler from camera's local rotation
+	// Extract euler from camera's local rotation (no cloning needed)
 	// In VR (Y-up), pitch is around X, yaw is around Y
-	const euler = new THREE.Euler();
-	euler.setFromQuaternion( cameraQuat, 'YXZ' );
+	_vrViewAngles_euler.setFromQuaternion( xrCamera.quaternion, 'YXZ' );
 
 	// Convert headset yaw from radians to degrees
 	// Three.js: yaw=0 is -Z, positive yaw rotates counterclockwise (left when viewed from above)
 	// Quake: yaw=0 is +X, positive yaw rotates counterclockwise (left)
 	// The offset is 90 degrees: Quake +X is Three.js -Z rotated 90 degrees
-	const headsetYawDegrees = euler.y * 180 / Math.PI + 90;
+	const headsetYawDegrees = _vrViewAngles_euler.y * 180 / Math.PI + 90;
 
 	// Total yaw = headset yaw + snap turn + smooth turn
-	const vrYawDegrees = headsetYawDegrees + snapTurnDegrees + smoothTurnDegrees;
+	_vrViewAngles_result.yaw = headsetYawDegrees + snapTurnDegrees + smoothTurnDegrees;
 
 	// Pitch: camera looking up/down
 	// In VR space (Y-up), pitch is euler.x
 	// Negative because looking down is positive euler.x but positive Quake pitch
-	const vrPitchDegrees = - euler.x * 180 / Math.PI;
+	_vrViewAngles_result.pitch = - _vrViewAngles_euler.x * 180 / Math.PI;
 
-	return {
-		yaw: vrYawDegrees,
-		pitch: vrPitchDegrees
-	};
+	return _vrViewAngles_result;
 
 }
