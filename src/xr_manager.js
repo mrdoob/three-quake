@@ -402,7 +402,8 @@ export class XRManager {
 
 			}
 
-			// Check A/X button for jump (usually button index 4 or 5)
+			// Check A/X button for jump (button index 4 on both controllers)
+			// Left controller: X button, Right controller: A button
 			if ( gamepad.buttons.length > 4 ) {
 
 				const jumpButton = gamepad.buttons[ 4 ];
@@ -410,13 +411,34 @@ export class XRManager {
 
 					this.inputState.jump = true;
 
-				} else {
+				}
 
-					this.inputState.jump = false;
+			}
+
+		}
+
+		// Reset jump if no jump button is pressed on any controller
+		// (checked after looping through all controllers)
+		let anyJumpPressed = false;
+		for ( const source of inputSources ) {
+
+			const gamepad = source.gamepad;
+			if ( gamepad && gamepad.buttons.length > 4 ) {
+
+				if ( gamepad.buttons[ 4 ] && gamepad.buttons[ 4 ].pressed ) {
+
+					anyJumpPressed = true;
+					break;
 
 				}
 
 			}
+
+		}
+
+		if ( ! anyJumpPressed ) {
+
+			this.inputState.jump = false;
 
 		}
 
