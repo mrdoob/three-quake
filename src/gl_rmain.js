@@ -7,7 +7,7 @@ import { Con_Printf, Con_DPrintf, COM_CheckParm } from './common.js';
 import { PITCH, YAW, ROLL } from './quakedef.js';
 import { cvar_t } from './cvar.js';
 import { vid, renderer, VID_CreateWorldContainer, VID_GetWorldContainer, VID_IsInVR, VID_GetXRManager, VID_RotateWorldForVR, VID_ResetWorldRotation } from './vid.js';
-import { XR_GetAccumulatedSnapTurn } from './xr_manager.js';
+import { XR_GetAccumulatedSnapTurn, XR_GetAccumulatedSmoothTurn } from './xr_manager.js';
 import { r_refdef, r_origin, vpn, vright, vup, entity_t } from './render.js';
 import {
 	M_PI, DotProduct, VectorCopy, VectorAdd, VectorSubtract, VectorMA,
@@ -1200,22 +1200,13 @@ export function R_UpdateVRCamera( vieworg ) {
 	// Position the camera rig at the player's location
 	xrManager.setPosition( vieworg[ 0 ], vieworg[ 1 ], vieworg[ 2 ] );
 
-	// Rotate the camera rig based on yaw change from session start
-	if ( cl && cl.viewangles ) {
-
-		// Capture base yaw on first call
-		if ( vrBaseYaw === null ) {
-
-			vrBaseYaw = cl.viewangles[ YAW ];
-
-		}
-
-		// Apply only the delta from the base yaw
-		const yawDelta = cl.viewangles[ YAW ] - vrBaseYaw;
-		const yawRadians = yawDelta * Math.PI / 180;
-		xrManager.setRotationY( yawRadians );
-
-	}
+	// Rotate the camera rig based on accumulated snap and smooth turns only
+	// (NOT headset rotation - that's handled by the XR camera itself)
+	const snapTurnDegrees = XR_GetAccumulatedSnapTurn();
+	const smoothTurnDegrees = XR_GetAccumulatedSmoothTurn();
+	const totalTurnDegrees = snapTurnDegrees + smoothTurnDegrees;
+	const turnRadians = totalTurnDegrees * Math.PI / 180;
+	xrManager.setRotationY( turnRadians );
 
 }
 
@@ -1236,25 +1227,26 @@ export function R_GetVRViewAngles() {
 
 	// Get the accumulated snap turn in degrees
 	const snapTurnDegrees = XR_GetAccumulatedSnapTurn();
+	// Get the accumulated smooth turn (from right stick) in degrees
+	const smoothTurnDegrees = XR_GetAccumulatedSmoothTurn();
 
-	// Get the XR camera's world quaternion (headset orientation)
-	const cameraQuat = new THREE.Quaternion();
-	xrCamera.getWorldQuaternion( cameraQuat );
+	// Get the XR camera's LOCAL quaternion (relative to camera rig, not world)
+	// This gives us just the headset orientation without the rig rotation
+	const cameraQuat = xrCamera.quaternion.clone();
 
-	// Extract euler from camera's world rotation
+	// Extract euler from camera's local rotation
 	// In VR (Y-up), pitch is around X, yaw is around Y
 	const euler = new THREE.Euler();
 	euler.setFromQuaternion( cameraQuat, 'YXZ' );
 
 	// Convert headset yaw from radians to degrees
-	// Three.js: yaw=0 is -Z, positive yaw rotates counterclockwise (left)
+	// Three.js: yaw=0 is -Z, positive yaw rotates counterclockwise (left when viewed from above)
 	// Quake: yaw=0 is +X, positive yaw rotates counterclockwise (left)
-	// Since world is rotated -90 around X, the yaw relationship:
-	// quakeYaw = -threeYaw * (180/PI)
-	const headsetYawDegrees = - euler.y * 180 / Math.PI;
+	// The offset is 90 degrees: Quake +X is Three.js -Z rotated 90 degrees
+	const headsetYawDegrees = euler.y * 180 / Math.PI + 90;
 
-	// Total yaw = headset yaw + snap turn
-	const vrYawDegrees = headsetYawDegrees + snapTurnDegrees;
+	// Total yaw = headset yaw + snap turn + smooth turn
+	const vrYawDegrees = headsetYawDegrees + snapTurnDegrees + smoothTurnDegrees;
 
 	// Pitch: camera looking up/down
 	// In VR space (Y-up), pitch is euler.x

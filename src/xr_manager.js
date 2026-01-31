@@ -45,6 +45,7 @@ export class XRManager {
 		this.snapTurnDelay = 0.3; // seconds between snap turns
 		this.pendingSnapTurn = 0;
 		this.accumulatedSnapTurnDegrees = 0; // Total snap turn angle in degrees
+		this.accumulatedSmoothTurnDegrees = 0; // Total smooth turn angle in degrees
 
 		// Deadzone for joystick input
 		this.deadzone = 0.15;
@@ -245,6 +246,24 @@ export class XRManager {
 	getAccumulatedSnapTurn() {
 
 		return this.accumulatedSnapTurnDegrees;
+
+	}
+
+	/**
+	 * Get accumulated smooth turn angle in degrees
+	 */
+	getAccumulatedSmoothTurn() {
+
+		return this.accumulatedSmoothTurnDegrees;
+
+	}
+
+	/**
+	 * Add to accumulated smooth turn
+	 */
+	addSmoothTurn( angleDegrees ) {
+
+		this.accumulatedSmoothTurnDegrees += angleDegrees;
 
 	}
 
@@ -475,6 +494,8 @@ export class XRManager {
 		this.inputState.firePressed = false;
 		this.inputState.jump = false;
 		this.pendingSnapTurn = 0;
+		this.accumulatedSnapTurnDegrees = 0;
+		this.accumulatedSmoothTurnDegrees = 0;
 
 	}
 
@@ -776,5 +797,35 @@ export function XR_GetAccumulatedSnapTurn() {
 	}
 
 	return 0;
+
+}
+
+/**
+ * Get accumulated smooth turn angle in degrees
+ * @returns {number} Total smooth turn angle
+ */
+export function XR_GetAccumulatedSmoothTurn() {
+
+	if ( xrManager ) {
+
+		return xrManager.getAccumulatedSmoothTurn();
+
+	}
+
+	return 0;
+
+}
+
+/**
+ * Add to accumulated smooth turn
+ * @param {number} angleDegrees - Angle to add in degrees
+ */
+export function XR_AddSmoothTurn( angleDegrees ) {
+
+	if ( xrManager && xrManager.isPresenting ) {
+
+		xrManager.addSmoothTurn( angleDegrees );
+
+	}
 
 }

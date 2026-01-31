@@ -28,7 +28,8 @@ import {
 import { M_TouchInput } from './menu.js';
 import { S_UnlockAudio } from './snd_dma.js';
 import { VID_IsInVR, VID_GetXRManager } from './vid.js';
-import { XR_GetInputState } from './xr_manager.js';
+import { XR_GetInputState, XR_AddSmoothTurn } from './xr_manager.js';
+import { R_GetVRViewAngles } from './gl_rmain.js';
 
 /*
 ===========================================================================
@@ -704,14 +705,26 @@ export function IN_Move( cmd ) {
 
 		prevVRFirePressed = xrInput.firePressed;
 
-		// Apply right stick input to view angles (like mouse movement)
-		// This controls the player's direction for movement
+		// Apply right stick horizontal input to smooth turn accumulator
+		// This is combined with headset yaw in R_GetVRViewAngles
 		const lookSpeed = sensitivity.value * 2.0; // Scale similar to mouse
 
-		if ( xrInput.lookX !== 0 || xrInput.lookY !== 0 ) {
+		if ( xrInput.lookX !== 0 ) {
 
-			cl.viewangles[ YAW ] -= xrInput.lookX * lookSpeed;
-			cl.viewangles[ PITCH ] += xrInput.lookY * lookSpeed;
+			// Accumulate smooth turn (negative because pushing right should turn right)
+			XR_AddSmoothTurn( - xrInput.lookX * lookSpeed );
+
+		}
+
+		// Apply headset orientation to player view angles so gun follows head
+		const vrAngles = R_GetVRViewAngles();
+		if ( vrAngles ) {
+
+			// Apply headset pitch directly
+			cl.viewangles[ PITCH ] = vrAngles.pitch;
+
+			// Apply headset yaw (includes snap turn and smooth turn)
+			cl.viewangles[ YAW ] = vrAngles.yaw;
 
 		}
 
