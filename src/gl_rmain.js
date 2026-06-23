@@ -22,7 +22,6 @@ import {
 	R_InitParticles, R_SetParticleExternals, R_ClearParticles,
 	R_DrawParticles as R_DrawParticles_impl
 } from './r_part.js';
-import { Debug_UpdateOverlay, Debug_ClearLabels } from './debug_overlay.js';
 import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose } from './webxr.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
@@ -1129,8 +1128,6 @@ export function R_RenderScene() {
 
 	R_DrawParticles();
 
-	Debug_UpdateOverlay();
-
 }
 
 //============================================================================
@@ -1283,8 +1280,6 @@ export function R_NewMap() {
 	_entityMeshesInScene = new Set();
 	_entityMeshesThisFrame.clear();
 	_spriteMaterialCache.clear();
-
-	Debug_ClearLabels();
 
 	// rebuild lightmaps
 	GL_BuildLightmaps_rsurf();
