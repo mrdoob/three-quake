@@ -316,11 +316,3 @@ export class CanvasTexture extends Texture {
 		super();
 	}
 }
-
-// CSS3D stubs (imported by debug_overlay.js, not used on server)
-export class CSS3DRenderer {
-	constructor() {}
-}
-export class CSS3DObject {
-	constructor() {}
-}
