@@ -34,6 +34,7 @@ import {
 	OP_BITAND, OP_BITOR,
 } from './pr_comp.js';
 import { ED_Print } from './pr_edict.js';
+import { ss_active } from './server.js';
 
 /*
 */
@@ -557,6 +558,8 @@ export function PR_ExecuteProgram( fnum ) {
 			case OP_ADDRESS: {
 
 				const ed = PROG_TO_EDICT( gi[ stA ] );
+				if ( ed === sv.edicts[ 0 ] && sv.state === ss_active )
+					PR_RunError( 'assignment to world entity' );
 				// Encode edict index and field offset into a single int
 				// b->_int is the field offset within the edict
 				gi[ stC ] = ( ed.index << 16 ) | ( gi[ stB ] & 0xFFFF );
