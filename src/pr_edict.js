@@ -29,7 +29,7 @@ import {
 	PR_GetString, G_FLOAT, G_INT, G_STRING, G_EDICT, G_EDICTNUM,
 	EDICT_NUM, NUM_FOR_EDICT, EDICT_TO_PROG, PROG_TO_EDICT,
 	E_STRING, E_INT, E_FLOAT,
-	sv, PR_SetSV,
+	sv, svs, PR_SetSV,
 	RETURN_EDICT,
 } from './progs.js';
 import { PR_ExecuteProgram } from './pr_exec.js';
@@ -113,9 +113,7 @@ export function ED_Alloc() {
 	let e;
 
 	// skip clients + world entity
-	const maxclients = sv.maxclients || 1;
-
-	for ( i = maxclients + 1; i < sv.num_edicts; i ++ ) {
+	for ( i = svs.maxclients + 1; i < sv.num_edicts; i ++ ) {
 
 		e = EDICT_NUM( i );
 		// the first couple seconds of server time can involve a lot of

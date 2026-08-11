@@ -276,8 +276,10 @@ export function PR_GetString( ofs ) {
 
 // These are set by the server module
 export let sv = null; // will reference the server state
+export let svs = null; // will reference the persistent server state
 
 export function PR_SetSV( s ) { sv = s; }
+export function PR_SetSVS( s ) { svs = s; }
 
 export function EDICT_NUM( n ) {
 
