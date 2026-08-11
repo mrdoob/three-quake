@@ -1538,9 +1538,7 @@ function SV_CreateBaseline() {
 			} else {
 
 				svent.baseline.colormap = 0;
-				svent.baseline.modelindex = SV_ModelIndex(
-					typeof svent.v.model === 'string' ? svent.v.model : ''
-				);
+				svent.baseline.modelindex = SV_ModelIndex( PR_GetString( svent.v.model ) );
 
 			}
 
