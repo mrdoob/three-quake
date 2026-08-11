@@ -57,7 +57,7 @@ import {
 	NET_CanSendMessage, NET_CanSendUnreliableMessage, NET_SendToAll, NET_Close, NET_GetMessage
 } from './net_main.js';
 import { net_activeconnections, set_net_activeconnections } from './net.js';
-import { realtime, Host_ClearMemory, set_host_frametime } from './host.js';
+import { realtime, Host_ClearMemory, Host_Error, set_host_frametime } from './host.js';
 import { COM_LoadFile } from './pak.js';
 import { VectorCopy, VectorAdd, DotProduct } from './mathlib.js';
 import { Mod_ForName, Mod_LeafPVS } from './gl_model.js';
@@ -67,7 +67,7 @@ import { SV_ClearWorld, SV_Move, SV_TestEntityPosition, SV_LinkEdict, SV_PointCo
 import { SV_Physics, SV_SetState, SV_SetCallbacks,
 	sv_maxvelocity, sv_gravity, sv_nostep, sv_friction, sv_edgefriction,
 	sv_stopspeed, sv_maxspeed, sv_accelerate, sv_idealpitchscale } from './sv_phys.js';
-import { PR_ExecuteProgram } from './pr_exec.js';
+import { PR_ExecuteProgram, PR_SetHostError } from './pr_exec.js';
 import { SV_User_SetCallbacks, SV_SetIdealPitch } from './sv_user.js';
 import { V_CalcRoll } from './view.js';
 import { key_dest } from './keys.js';
@@ -100,6 +100,7 @@ SV_Init
 */
 export function SV_Init() {
 
+	PR_SetHostError( Host_Error );
 	Cvar_RegisterVariable( sv_maxvelocity );
 	Cvar_RegisterVariable( sv_gravity );
 	Cvar_RegisterVariable( sv_friction );

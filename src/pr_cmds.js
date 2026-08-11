@@ -32,7 +32,7 @@ import {
 	ED_Alloc, ED_Free, ED_Print, ED_PrintNum, ED_PrintEdicts,
 	ED_FindFunction, ED_FindField,
 } from './pr_edict.js';
-import { PR_RunError } from './pr_exec.js';
+import { PR_HostError, PR_RunError } from './pr_exec.js';
 import { SV_Move, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_movestep, SV_CheckBottom, SV_MoveToGoal as SV_MoveToGoal_Real, SV_Move_SetCallbacks } from './sv_move.js';
 import { SV_StartSound, SV_StartParticle, sv_aim } from './sv_main.js';
@@ -85,7 +85,7 @@ function PF_error() {
 	const ed = PROG_TO_EDICT( pr_global_struct.self );
 	ED_Print( ed );
 
-	throw new Error( 'Program error: ' + s );
+	PR_HostError( 'Program error' );
 
 }
 
@@ -108,7 +108,7 @@ function PF_objerror() {
 	ED_Print( ed );
 	ED_Free( ed );
 
-	throw new Error( 'Program error: ' + s );
+	PR_HostError( 'Program error' );
 
 }
 
