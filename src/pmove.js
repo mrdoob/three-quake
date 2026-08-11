@@ -310,7 +310,7 @@ function PM_RecursiveHullCheck( hull, num, p1f, p2f, p1, p2, trace ) {
 	if ( frac < 0 ) frac = 0;
 	if ( frac > 1 ) frac = 1;
 
-	const midf = p1f + ( p2f - p1f ) * frac;
+	let midf = p1f + ( p2f - p1f ) * frac;
 	const mid = new Float32Array( 3 ); // must allocate: recursive function needs separate buffer per call
 	for ( let i = 0; i < 3; i++ )
 		mid[ i ] = p1[ i ] + frac * ( p2[ i ] - p1[ i ] );
@@ -345,7 +345,7 @@ function PM_RecursiveHullCheck( hull, num, p1f, p2f, p1, p2, trace ) {
 			VectorCopy( mid, trace.endpos );
 			return false;
 		}
-		const newmidf = p1f + ( p2f - p1f ) * frac;
+		midf = p1f + ( p2f - p1f ) * frac;
 		for ( let i = 0; i < 3; i++ )
 			mid[ i ] = p1[ i ] + frac * ( p2[ i ] - p1[ i ] );
 	}
