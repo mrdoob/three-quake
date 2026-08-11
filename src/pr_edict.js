@@ -993,7 +993,7 @@ export function ED_LoadFromFile( data ) {
 		data = ED_ParseEdict( data, ent );
 
 		// remove things from different skill levels or deathmatch
-		if ( deathmatch.value ) {
+		if ( deathmatch.value !== 0 ) {
 
 			if ( ( ( ent.v.spawnflags | 0 ) & SPAWNFLAG_NOT_DEATHMATCH ) ) {
 
