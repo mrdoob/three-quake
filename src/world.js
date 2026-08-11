@@ -24,8 +24,8 @@ import {
 import { PR_ExecuteProgram } from './pr_exec.js';
 import { EDICT_TO_PROG, PROG_TO_EDICT, pr_global_struct } from './progs.js';
 
-// Pre-allocated scratch vectors for SV_RecursiveHullCheck (indexed by recursion depth)
-// BSP hull trees are typically 20-30 levels deep max
+// Pre-allocated scratch vectors for SV_RecursiveHullCheck (indexed by recursion depth).
+// Grow this pool on demand because valid BSP hulls can be deeper than the common case.
 const _hullMidPool = [];
 for ( let i = 0; i < 32; i ++ ) _hullMidPool[ i ] = new Float32Array( 3 );
 
@@ -725,7 +725,13 @@ export function SV_RecursiveHullCheck( hull, num, p1f, p2f, p1, p2, trace, depth
 
 	let midf = p1f + ( p2f - p1f ) * frac;
 	// Use pre-allocated scratch vector from pool (indexed by recursion depth)
-	const mid = _hullMidPool[ depth ];
+	let mid = _hullMidPool[ depth ];
+	if ( mid == null ) {
+
+		mid = new Float32Array( 3 );
+		_hullMidPool[ depth ] = mid;
+
+	}
 	mid[ 0 ] = p1[ 0 ] + frac * ( p2[ 0 ] - p1[ 0 ] );
 	mid[ 1 ] = p1[ 1 ] + frac * ( p2[ 1 ] - p1[ 1 ] );
 	mid[ 2 ] = p1[ 2 ] + frac * ( p2[ 2 ] - p1[ 2 ] );
