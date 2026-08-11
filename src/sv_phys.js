@@ -572,11 +572,17 @@ export function SV_AddGravity( ent ) {
 
 	let ent_gravity;
 
-	const val = GetEdictFieldValue ? GetEdictFieldValue( ent, 'gravity' ) : null;
-	if ( val && val._float )
-		ent_gravity = val._float;
-	else
+	const val = GetEdictFieldValue != null ? GetEdictFieldValue( ent, 'gravity' ) : null;
+	if ( val != null ) {
+
+		const gravity = val.accessor.getFloat( val.ofs );
+		ent_gravity = gravity !== 0 ? gravity : 1.0;
+
+	} else {
+
 		ent_gravity = 1.0;
+
+	}
 
 	ent.v.velocity[ 2 ] -= ent_gravity * sv_gravity.value * host_frametime;
 
