@@ -62,7 +62,7 @@ import { COM_LoadFile } from './pak.js';
 import { VectorCopy, VectorAdd, DotProduct } from './mathlib.js';
 import { Mod_ForName, Mod_LeafPVS } from './gl_model.js';
 import { PR_LoadProgs, PR_AllocEdicts, ED_ClearEdict, ED_LoadFromFile, PR_SetCurrentSkill } from './pr_edict.js';
-import { pr_global_struct, pr_strings, pr_edict_size, progs, pr_crc, EDICT_NUM, PR_SetSV, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
+import { pr_global_struct, pr_strings, pr_edict_size, progs, pr_crc, EDICT_NUM, NUM_FOR_EDICT, PR_SetSV, EDICT_TO_PROG, PROG_TO_EDICT, NEXT_EDICT, PR_GetString } from './progs.js';
 import { SV_ClearWorld, SV_Move, SV_TestEntityPosition, SV_LinkEdict, SV_PointContents } from './world.js';
 import { SV_Physics, SV_SetState, SV_SetCallbacks,
 	sv_maxvelocity, sv_gravity, sv_nostep, sv_friction, sv_edgefriction,
@@ -211,7 +211,7 @@ export function SV_StartSound( entity, channel, sample, volume, attenuation ) {
 	}
 
 	// NUM_FOR_EDICT -- entity index in edicts array
-	const ent = entity._index !== undefined ? entity._index : 0;
+	const ent = NUM_FOR_EDICT( entity );
 
 	channel = ( ent << 3 ) | channel;
 
