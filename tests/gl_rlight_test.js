@@ -4,7 +4,10 @@ const gl_rsurf = await import( '../src/gl_rsurf.js' );
 const glquake = await import( '../src/glquake.js' );
 const gl_rmain = await import( '../src/gl_rmain.js' );
 const gl_rlight = await import( '../src/gl_rlight.js' );
+const view = await import( '../src/view.js' );
+const THREE = await import( 'three' );
 const { cl, cl_dlights } = await import( '../src/client.js' );
+const { r_origin } = await import( '../src/render.js' );
 
 function assertEqual( actual, expected, message ) {
 
@@ -12,6 +15,91 @@ function assertEqual( actual, expected, message ) {
 		throw new Error( `${message}: expected ${expected}, got ${actual}` );
 
 }
+
+function assertNear( actual, expected, message, epsilon = 1e-6 ) {
+
+	if ( Number.isFinite( actual ) === false || Math.abs( actual - expected ) > epsilon )
+		throw new Error( `${message}: expected ${expected}, got ${actual}` );
+
+}
+
+Deno.test( 'dynamic lights add their proximity blend to the displayed overlay', () => {
+
+	const oldBlend = new Float32Array( glquake.v_blend );
+	const oldFlashblend = glquake.gl_flashblend.value;
+	const oldTime = cl.time;
+	const oldOrigin = new Float32Array( r_origin );
+	const oldLights = cl_dlights.map( ( light ) => ( {
+		die: light.die,
+		radius: light.radius,
+		origin: new Float32Array( light.origin )
+	} ) );
+	const scene = new THREE.Scene();
+
+	try {
+
+		assertEqual( view.v_blend, glquake.v_blend, 'view blend identity' );
+		assertEqual( gl_rmain.v_blend, glquake.v_blend, 'renderer blend identity' );
+
+		glquake.gl_flashblend.value = 1;
+		cl.time = 10;
+		r_origin.fill( 0 );
+		glquake.v_blend.fill( 0 );
+		for ( const light of cl_dlights ) {
+
+			light.die = 0;
+			light.radius = 0;
+
+		}
+
+		const light = cl_dlights[ cl_dlights.length - 1 ];
+		light.die = 11;
+		light.radius = 100;
+		light.origin.fill( 0 );
+
+		gl_rlight.R_RenderDlights( cl, scene );
+
+		assertNear( gl_rmain.v_blend[ 0 ], 1, 'inside-light red blend' );
+		assertNear( gl_rmain.v_blend[ 1 ], 0.5, 'inside-light green blend' );
+		assertNear( gl_rmain.v_blend[ 2 ], 0, 'inside-light blue blend' );
+		assertNear( gl_rmain.v_blend[ 3 ], 0.03, 'inside-light alpha blend' );
+		assertEqual( scene.children.length, 1, 'pooled light attached once' );
+		const pointLight = scene.children[ 0 ];
+
+		glquake.v_blend.fill( 0 );
+		gl_rlight.R_RenderDlights( cl, scene );
+		assertEqual( scene.children.length, 1, 'pooled light not duplicated' );
+		assertEqual( scene.children[ 0 ], pointLight, 'pooled light reused' );
+
+		glquake.v_blend.fill( 0 );
+		light.origin.set( [ 35, 0, 0 ] );
+		gl_rlight.R_RenderDlights( cl, scene );
+		assertNear( gl_rmain.v_blend[ 3 ], 0, 'radius boundary has no blend' );
+
+		light.die = 9;
+		gl_rlight.R_RenderDlights( cl, scene );
+		assertEqual( scene.children.length, 0, 'expired pooled light detached' );
+
+	} finally {
+
+		cl_dlights[ cl_dlights.length - 1 ].die = 0;
+		cl_dlights[ cl_dlights.length - 1 ].radius = 0;
+		gl_rlight.R_RenderDlights( cl, scene );
+		glquake.v_blend.set( oldBlend );
+		glquake.gl_flashblend.value = oldFlashblend;
+		cl.time = oldTime;
+		r_origin.set( oldOrigin );
+		for ( let i = 0; i < cl_dlights.length; i ++ ) {
+
+			cl_dlights[ i ].die = oldLights[ i ].die;
+			cl_dlights[ i ].radius = oldLights[ i ].radius;
+			cl_dlights[ i ].origin.set( oldLights[ i ].origin );
+
+		}
+
+	}
+
+} );
 
 Deno.test( 'dynamic light marks use the renderer frame counter', () => {
 

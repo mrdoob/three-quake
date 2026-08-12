@@ -23,6 +23,9 @@ import { con_forcedup } from './console.js';
 import { VID_UpdateGamma } from './vid.js';
 import { scr_viewsize } from './gl_screen.js';
 import { cl_simorg, cl_simvel, cl_simangles, cl_simonground, cl_nopred, cl_prediction_active } from './cl_pred.js';
+import { v_blend } from './glquake.js';
+
+export { v_blend };
 
 // Lazy-loaded Chase_Update (avoids circular dependency: in_web.js → view.js → chase.js → client.js)
 let _Chase_Update = null;
@@ -287,7 +290,6 @@ const gammatable = new Uint8Array( 256 );
 
 // GLQUAKE
 const ramps = [ new Uint8Array( 256 ), new Uint8Array( 256 ), new Uint8Array( 256 ) ];
-export const v_blend = new Float32Array( 4 ); // rgba 0.0 - 1.0
 
 function BuildGammaTable( g ) {
 

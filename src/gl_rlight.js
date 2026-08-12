@@ -162,8 +162,7 @@ export function R_RenderDlights( cl, scene ) {
 		if ( isActive ) {
 
 			// Active - update properties
-			const pointLight = _getDlight( i );
-			pointLight.position.set( l.origin[ 0 ], l.origin[ 1 ], l.origin[ 2 ] );
+			const pointLight = R_RenderDlight( l, i );
 
 			// intensity = time remaining (fades to 0 as light dies)
 			// distance = radius (shrinks via game's decay system)

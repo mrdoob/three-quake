@@ -280,6 +280,16 @@ export class Object3D {
 	updateMatrixWorld() {}
 }
 
+export class PointLight extends Object3D {
+	constructor(color, intensity = 1, distance = 0, decay = 2) {
+		super();
+		this.color = color;
+		this.intensity = intensity;
+		this.distance = distance;
+		this.decay = decay;
+	}
+}
+
 export class Mesh extends Object3D {
 	constructor(geometry, material) {
 		super();

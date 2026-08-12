@@ -17,7 +17,7 @@ import { Mod_PointInLeaf, SPR_SINGLE, SPR_ORIENTED } from './gl_model.js';
 import { R_AnimateLight as R_AnimateLight_impl, R_PushDlights as R_PushDlights_impl, R_RenderDlights as R_RenderDlights_impl, R_LightPoint, lightspot } from './gl_rlight.js';
 import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow } from './gl_mesh.js';
 import { r_avertexnormal_dots } from './anorm_dots.js';
-import { V_SetContentsColor as V_SetContentsColor_view, V_CalcBlend as V_CalcBlend_view, v_blend as v_blend_view } from './view.js';
+import { V_SetContentsColor as V_SetContentsColor_view, V_CalcBlend as V_CalcBlend_view } from './view.js';
 import { chase_active } from './chase.js';
 import {
 	R_InitParticles, R_SetParticleExternals, R_ClearParticles,
@@ -29,6 +29,7 @@ import {
 	cl_static_entities, cl_temp_entities, cl_lightstyle
 } from './client.js';
 import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
+	v_blend,
 	r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
 	r_fullbright, r_lightmap, r_shadows, r_mirroralpha,
 	r_wateralpha, r_dynamic, r_novis, r_drawworld, r_waterwarp,
@@ -39,6 +40,7 @@ import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
 } from './glquake.js';
 export { GL_BuildLightmaps_rsurf as GL_BuildLightmaps };
 export { r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
+	v_blend,
 	r_fullbright, r_lightmap, r_shadows, r_mirroralpha,
 	r_wateralpha, r_dynamic, r_novis, r_drawworld, r_waterwarp,
 	gl_clear, gl_cull, gl_texsort, gl_smoothmodels, gl_affinemodels,
@@ -183,12 +185,6 @@ export let camera = null; // THREE.PerspectiveCamera
 // They are registered in gl_rmisc.js R_Init().
 // gl_ztrick is unique to gl_rmain (not in glquake.js).
 export const gl_ztrick = new cvar_t( 'gl_ztrick', '1' );
-
-//============================================================================
-// v_blend -- screen blend color for damage/powerups
-//============================================================================
-
-export const v_blend = new Float32Array( 4 ); // r, g, b, a
 
 //============================================================================
 // R_CullBox
@@ -1458,11 +1454,6 @@ function V_SetContentsColor( contents ) {
 function V_CalcBlend() {
 
 	V_CalcBlend_view();
-	// Copy view.js's v_blend into gl_rmain.js's v_blend so R_PolyBlend can read it
-	v_blend[ 0 ] = v_blend_view[ 0 ];
-	v_blend[ 1 ] = v_blend_view[ 1 ];
-	v_blend[ 2 ] = v_blend_view[ 2 ];
-	v_blend[ 3 ] = v_blend_view[ 3 ];
 
 }
 
