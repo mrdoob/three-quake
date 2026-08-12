@@ -743,17 +743,7 @@ const _setupgl_forward = new Float32Array( 3 );
 const _setupgl_right = new Float32Array( 3 );
 const _setupgl_up = new Float32Array( 3 );
 const _setupgl_matrix = new THREE.Matrix4();
-const _setupgl_drawingBufferSize = {
-	x: 0,
-	y: 0,
-	set( x, y ) {
-
-		this.x = x;
-		this.y = y;
-		return this;
-
-	}
-};
+const _setupgl_drawingBufferSize = new THREE.Vector2();
 
 function R_DrawAliasModel( e ) {
 

@@ -30,6 +30,24 @@ export const FrontSide = 0;
 export const BackSide = 1;
 export const DoubleSide = 2;
 
+// Vector2 - used for renderer dimensions
+export class Vector2 {
+	constructor(x = 0, y = 0) {
+		this.x = x;
+		this.y = y;
+	}
+	set(x, y) {
+		this.x = x;
+		this.y = y;
+		return this;
+	}
+	floor() {
+		this.x = Math.floor(this.x);
+		this.y = Math.floor(this.y);
+		return this;
+	}
+}
+
 // Vector3 - might be used for math
 export class Vector3 {
 	constructor(x = 0, y = 0, z = 0) {
