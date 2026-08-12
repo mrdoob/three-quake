@@ -25,7 +25,7 @@ import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
 import { anglemod, VectorCopy, VectorMA, AngleVectors } from './mathlib.js';
 import { R_RocketTrail, R_RemoveEfrags, R_EntityParticles } from './render.js';
 import { CL_InitTEnts, CL_UpdateTEnts } from './cl_tent.js';
-import { host_frametime, realtime, Host_Error, Host_ShutdownServer, sv } from './host.js';
+import { host_frametime, realtime, Host_Error, Host_ShutdownServer, Host_ClearMemory, sv } from './host.js';
 import { SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque } from './gl_screen.js';
 import { S_StopAllSounds } from './snd_dma.js';
 import { M_ConnectionError, M_ShouldReturnOnError } from './menu.js';
@@ -65,8 +65,8 @@ CL_ClearState
 */
 export function CL_ClearState() {
 
-	// if (!sv.active)
-	//     Host_ClearMemory();
+	if ( sv.active === false )
+		Host_ClearMemory();
 
 	// Reset client-side prediction state
 	CL_ResetPrediction();
