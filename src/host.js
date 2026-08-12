@@ -15,7 +15,7 @@ import { Key_Init, Key_WriteBindings } from './keys.js';
 import { Con_Init, Con_SetExternals, Con_Printf as RealConPrintf, Con_DPrintf as RealConDPrintf } from './console.js';
 import { M_Init, M_SetExternals } from './menu.js';
 import { PR_Init } from './pr_edict.js';
-import { Mod_Init, Mod_ClearAll } from './gl_model.js';
+import { Mod_Init, Mod_ClearAll, R_InitTextures } from './gl_model.js';
 import { NET_Init, NET_Poll, NET_Shutdown, NET_SendMessage, NET_CanSendMessage,
 	NET_GetMessage, NET_SendToAll, WT_QueryRooms, WT_CreateRoom } from './net_main.js';
 import { SV_Init, SV_CheckForNewClients, SV_ClearDatagram,
@@ -24,7 +24,7 @@ import { SV_RunClients } from './sv_user.js';
 import { SV_Physics, SV_SetFrametime, sv_gravity } from './sv_phys.js';
 import { sv, svs, client_t,
 	host_client, set_host_client } from './server.js';
-import { R_InitTextures, R_Init, D_FlushCaches } from './gl_rmisc.js';
+import { R_Init, D_FlushCaches } from './gl_rmisc.js';
 import { VID_Init, VID_Shutdown } from './vid.js';
 import { Draw_Init, Draw_Character, Draw_String, Draw_ConsoleBackground, Draw_SetExternals, Draw_PicFromWad, Draw_CachePic, Draw_Pic, Draw_SubPic, Draw_TransPic, Draw_TransPicTranslate, Draw_Fill, Draw_FadeScreen } from './gl_draw.js';
 import { SCR_Init, SCR_UpdateScreen, SCR_SetExternals, SCR_EndLoadingPlaque, SCR_BeginLoadingPlaque } from './gl_screen.js';

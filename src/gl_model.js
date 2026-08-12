@@ -802,11 +802,73 @@ export function Mod_Init() {
 	// Cvar_RegisterVariable( gl_subdivide_size );
 	mod_novis.fill( 0xff );
 
-	// Create the notexture mip
-	r_notexture_mip = new texture_t();
-	r_notexture_mip.name = 'notexture';
-	r_notexture_mip.width = 16;
-	r_notexture_mip.height = 16;
+}
+
+// ============================================================================
+// R_InitTextures
+// ============================================================================
+
+export function R_InitTextures() {
+
+	if ( r_notexture_mip != null && r_notexture_mip.gl_texture != null )
+		return r_notexture_mip;
+
+	const fallback = new texture_t();
+	fallback.name = 'notexture';
+	fallback.width = 16;
+	fallback.height = 16;
+
+	const totalSize = 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2;
+	fallback.pixels = new Uint8Array( totalSize );
+	fallback.offsets[ 0 ] = 0;
+	fallback.offsets[ 1 ] = 16 * 16;
+	fallback.offsets[ 2 ] = fallback.offsets[ 1 ] + 8 * 8;
+	fallback.offsets[ 3 ] = fallback.offsets[ 2 ] + 4 * 4;
+
+	for ( let m = 0; m < MIPLEVELS; m ++ ) {
+
+		const size = 16 >> m;
+		const half = 8 >> m;
+		let offset = fallback.offsets[ m ];
+		for ( let y = 0; y < size; y ++ ) {
+
+			for ( let x = 0; x < size; x ++ ) {
+
+				const alternate = ( y < half ) !== ( x < half );
+				fallback.pixels[ offset ++ ] = alternate === true ? 0 : 0xff;
+
+			}
+
+		}
+
+	}
+
+	const rgba = new Uint8Array( 16 * 16 * 4 );
+	for ( let y = 0; y < 16; y ++ ) {
+
+		for ( let x = 0; x < 16; x ++ ) {
+
+			const index = ( y * 16 + x ) * 4;
+			const alternate = ( y < 8 ) !== ( x < 8 );
+			rgba[ index ] = alternate === true ? 255 : 0;
+			rgba[ index + 1 ] = 0;
+			rgba[ index + 2 ] = alternate === true ? 255 : 0;
+			rgba[ index + 3 ] = 255;
+
+		}
+
+	}
+
+	const texture = new THREE.DataTexture( rgba, 16, 16, THREE.RGBAFormat );
+	texture.magFilter = THREE.NearestFilter;
+	texture.minFilter = THREE.NearestFilter;
+	texture.wrapS = THREE.RepeatWrapping;
+	texture.wrapT = THREE.RepeatWrapping;
+	texture.needsUpdate = true;
+	fallback.gl_texture = texture;
+
+	r_notexture_mip = fallback;
+	return r_notexture_mip;
 
 }
 

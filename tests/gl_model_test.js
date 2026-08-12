@@ -3,6 +3,7 @@ await import( '../src/gl_rsurf.js' );
 
 const gl_model = await import( '../src/gl_model.js' );
 const glquake = await import( '../src/glquake.js' );
+const gl_rsurf = await import( '../src/gl_rsurf.js' );
 const THREE = await import( 'three' );
 
 function assertEqual( actual, expected, message ) {
@@ -114,5 +115,24 @@ Deno.test( 'server texture shim supports map texture disposal', () => {
 
 	const texture = new THREE.DataTexture();
 	texture.dispose();
+
+} );
+
+Deno.test( 'missing textures use the persistent checkerboard', () => {
+
+	gl_model.Mod_Init();
+	const fallback = gl_model.R_InitTextures();
+	const fallbackTexture = fallback.gl_texture;
+	assertEqual( gl_model.R_InitTextures(), fallback, 'idempotent fallback descriptor' );
+	assertEqual( fallback.gl_texture, fallbackTexture, 'idempotent fallback texture' );
+
+	const material = { map: null, needsUpdate: false };
+	assertEqual( gl_rsurf.R_UpdateAnimatedMaterial( material, fallback, 0 ), true,
+		'fallback material update' );
+	assertEqual( material.map, fallbackTexture, 'renderer fallback map' );
+
+	gl_model.Mod_ClearAll();
+	assertEqual( fallback.gl_texture, fallbackTexture, 'fallback survives map clearing' );
+	assertEqual( gl_model.R_InitTextures(), fallback, 'fallback survives reinitialization' );
 
 } );
