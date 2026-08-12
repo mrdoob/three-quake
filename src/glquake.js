@@ -258,7 +258,7 @@ export const gl_nocolors = { name: 'gl_nocolors', string: '0', value: 0 };
 export const gl_doubleeyes = { name: 'gl_doubleeyes', string: '1', value: 1 };
 export const gl_max_size = { name: 'gl_max_size', string: '1024', value: 1024 };
 export const gl_playermip = { name: 'gl_playermip', string: '0', value: 0 };
-export const gl_subdivide_size = { name: 'gl_subdivide_size', string: '128', value: 128 };
+export const gl_subdivide_size = { name: 'gl_subdivide_size', string: '128', value: 128, archive: true };
 // Texture filtering: 0 = nearest (pixelated), 1 = linear (smooth)
 export const gl_texturemode = { name: 'gl_texturemode', string: '0', value: 0, archive: true };
 
