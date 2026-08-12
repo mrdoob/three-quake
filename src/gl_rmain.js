@@ -29,7 +29,7 @@ import {
 	cl_static_entities, cl_temp_entities, cl_lightstyle
 } from './client.js';
 import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
-	v_blend,
+	v_blend, mirrortexturenum, set_mirrortexturenum,
 	r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
 	r_fullbright, r_lightmap, r_shadows, r_mirroralpha,
 	r_wateralpha, r_dynamic, r_novis, r_drawworld, r_waterwarp,
@@ -40,7 +40,7 @@ import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
 } from './glquake.js';
 export { GL_BuildLightmaps_rsurf as GL_BuildLightmaps };
 export { r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
-	v_blend,
+	v_blend, mirrortexturenum, set_mirrortexturenum,
 	r_fullbright, r_lightmap, r_shadows, r_mirroralpha,
 	r_wateralpha, r_dynamic, r_novis, r_drawworld, r_waterwarp,
 	gl_clear, gl_cull, gl_texsort, gl_smoothmodels, gl_affinemodels,
@@ -135,7 +135,6 @@ export const cnttextures = [ - 1, - 1 ]; // cached
 export let particletexture = 0; // little dot for particles
 export let playertextures = 0; // up to 16 color translated skins
 
-export let mirrortexturenum = 0; // quake texturenum, not gltexturenum
 export let mirror = false;
 export let mirror_plane = null; // mplane_t pointer
 

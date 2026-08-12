@@ -27,7 +27,8 @@ function captureRendererState() {
 		worldEntity: worldEntity,
 		worldEntityDescriptors: worldEntity != null
 			? Object.getOwnPropertyDescriptors( worldEntity )
-			: null
+			: null,
+		mirrorTextureNum: gl_rmain.mirrortexturenum
 	};
 
 }
@@ -46,6 +47,7 @@ function restoreRendererState( state ) {
 	gl_rmain.set_r_visframecount( state.visFrame );
 	gl_rmain.set_r_viewleaf( state.viewLeaf );
 	gl_rmain.set_r_oldviewleaf( state.oldViewLeaf );
+	gl_rmain.set_mirrortexturenum( state.mirrorTextureNum );
 
 }
 
@@ -60,8 +62,11 @@ Deno.test( 'map setup runs the canonical renderer reset', () => {
 	const worldmodel = {
 		numleafs: 1,
 		leafs: [ { efrags: efrag }, { contents: - 2 } ],
-		numtextures: 0,
-		textures: [],
+		numtextures: 2,
+		textures: [
+			{ name: 'stone', texturechain: {} },
+			{ name: 'window02_1', texturechain: {} }
+		],
 		firstmodelsurface: 0,
 		nummodelsurfaces: 0,
 		numsurfaces: 0,
@@ -87,10 +92,19 @@ Deno.test( 'map setup runs the canonical renderer reset', () => {
 			assertEqual( worldEntity, rendererState.worldEntity, 'existing world entity identity' );
 		assertEqual( worldEntity.model, worldmodel, 'world entity model' );
 		assertEqual( result.worldEntity, worldEntity, 'published world entity' );
+		assertEqual( result.mirrortexturenum, 1, 'published mirror texture index' );
+		assertEqual( gl_rmain.mirrortexturenum, 1, 'renderer mirror texture index' );
+		assertEqual( worldmodel.textures[ 1 ].texturechain, null,
+			'mirror texture chain reset' );
 
 		worldEntity.frame = 7;
 		worldEntity._brushGroup = {};
-		const nextWorldmodel = { ...worldmodel, leafs: [ { efrags: {} } ] };
+		const nextWorldmodel = {
+			...worldmodel,
+			leafs: [ { efrags: {} } ],
+			numtextures: 1,
+			textures: [ { name: 'stone', texturechain: {} } ]
+		};
 		cl.worldmodel = nextWorldmodel;
 		const nextResult = gl_rmisc.R_NewMap( cl );
 
@@ -100,6 +114,8 @@ Deno.test( 'map setup runs the canonical renderer reset', () => {
 		assertEqual( worldEntity.frame, 0, 'reset world entity frame' );
 		assertEqual( Object.hasOwn( worldEntity, '_brushGroup' ), false,
 			'reset world entity renderer cache' );
+		assertEqual( nextResult.mirrortexturenum, - 1, 'published missing mirror index' );
+		assertEqual( gl_rmain.mirrortexturenum, - 1, 'renderer missing mirror index' );
 
 	} finally {
 

@@ -9,7 +9,7 @@ import { d_lightstylevalue, r_viewleaf, r_norefresh, r_lightmap,
 	gl_clear, gl_texsort, gl_cull, gl_smoothmodels, gl_affinemodels,
 	gl_polyblend, gl_flashblend, gl_playermip, gl_nocolors,
 	gl_keeptjunctions, gl_reporttjunctions, gl_doubleeyes, gl_texturemode,
-	gl_mtexable, skytexturenum, mirrortexturenum,
+	gl_mtexable, skytexturenum, mirrortexturenum, set_mirrortexturenum,
 	getTextureExtensionNumber, particletexture, playertextures,
 	envmap } from './glquake.js';
 import { mod_alias, r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain } from './gl_rmain.js';
@@ -338,6 +338,7 @@ export function R_NewMap( cl ) {
 
 	// Set sky texture number in gl_rsurf.js for DrawTextureChains
 	set_skytexturenum_rsurf( skyTexNum );
+	set_mirrortexturenum( mirrorTexNum );
 
 	return {
 		worldEntity: r_worldentity,

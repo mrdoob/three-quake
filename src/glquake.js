@@ -211,6 +211,7 @@ export let envmap = false;
 
 export let skytexturenum = - 1;
 export let mirrortexturenum = - 1;
+export function set_mirrortexturenum( value ) { mirrortexturenum = value; }
 export let mirror = false;
 export let mirror_plane = null;
 
