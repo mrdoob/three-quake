@@ -16,7 +16,7 @@ import { Cvar_RegisterVariable } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { Con_Printf } from './console.js';
 import { cl, cls, ca_connected } from './client.js';
-import { m_pitch, m_yaw, m_forward, m_side, lookstrafe } from './cl_main.js';
+import { sensitivity, m_pitch, m_yaw, m_forward, m_side, lookstrafe } from './cl_main.js';
 import { in_mlook, in_strafe, cl_forwardspeed, cl_sidespeed, cl_yawspeed, cl_pitchspeed } from './cl_input.js';
 import { V_StopPitchDrift } from './view.js';
 import { host_frametime } from './host.js';
@@ -271,7 +271,6 @@ function GP_Poll( cmd ) {
 
 // cvars (matching in_win.c)
 const m_filter = { name: 'm_filter', string: '0', value: 0 };
-const sensitivity = { name: 'sensitivity', string: '3', value: 3 };
 // Gamepad look tuning (standard mapping right stick).
 // Defaults keep yaw/pitch even and slower than the prior hardcoded multiplier.
 const gp_look_yaw = { name: 'gp_look_yaw', string: '1', value: 1 };
@@ -624,7 +623,6 @@ export function IN_Init( element ) {
 	};
 
 	// Register cvars
-	Cvar_RegisterVariable( sensitivity );
 	Cvar_RegisterVariable( m_filter );
 	Cvar_RegisterVariable( gp_look_yaw );
 	Cvar_RegisterVariable( gp_look_pitch );
