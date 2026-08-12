@@ -40,7 +40,7 @@ import {
 	BACKFACE_EPSILON, VERTEXSIZE, PLANE_X, PLANE_Y, PLANE_Z,
 	SURF_PLANEBACK, SURF_DRAWSKY, SURF_DRAWTURB, SURF_UNDERWATER,
 	SURF_DRAWTILED, MAXLIGHTMAPS,
-	modelorg, r_entorigin, currententity,
+	modelorg, r_entorigin, currententity, r_worldentity,
 	r_visframecount, r_framecount, frustum,
 	c_brush_polys, c_alias_polys,
 	currenttexture, mirror, mirrortexturenum, mirror_plane,
@@ -50,7 +50,7 @@ import {
 	gl_texsort, gl_flashblend, gl_keeptjunctions,
 	R_CullBox, scene, gldepthmin, gldepthmax,
 	r_viewleaf, r_oldviewleaf,
-	inc_r_visframecount, set_r_framecount,
+	inc_r_visframecount, set_r_framecount, set_currententity,
 	inc_c_brush_polys, set_currenttexture,
 	set_r_oldviewleaf, set_mirror, set_mirror_plane
 } from './gl_rmain.js';
@@ -201,6 +201,9 @@ const instanceVisInfo = [];
 // All BatchedMesh objects for the world (one per texture/lightmap combo)
 const worldBatchedMeshes = [];
 
+// Animated materials within the cached world batches.
+const worldAnimatedMeshes = [];
+
 // Pre-allocated scratch arrays to avoid per-frame allocations
 const _cullBoxMaxs = new Float32Array( 3 ); // for R_CullBox in R_RecursiveWorldNode
 
@@ -310,14 +313,14 @@ function _getWaterMesh( s, geometry, material, renderGroup ) {
 // Returns the proper texture for a given time and base texture
 //============================================================================
 
-export function R_TextureAnimation( base ) {
+export function R_TextureAnimation( base, entityFrame = currententity != null ? currententity.frame : 0 ) {
 
 	let reletive;
 	let count;
 
-	if ( currententity && currententity.frame ) {
+	if ( entityFrame != null && entityFrame !== 0 ) {
 
-		if ( base.alternate_anims )
+		if ( base.alternate_anims != null )
 			base = base.alternate_anims;
 
 	}
@@ -341,6 +344,48 @@ export function R_TextureAnimation( base ) {
 	}
 
 	return base;
+
+}
+
+export function R_UpdateAnimatedMaterial( material, baseTexture, entityFrame = 0 ) {
+
+	const animatedTexture = R_TextureAnimation( baseTexture, entityFrame );
+	const diffuse = animatedTexture != null && animatedTexture.gl_texture != null
+		? animatedTexture.gl_texture
+		: baseTexture.gl_texture;
+	const hadMap = material.map != null;
+	const hasMap = diffuse != null;
+	const supportsEmissive = material.emissive != null;
+	const fullbright = supportsEmissive && diffuse != null && diffuse._fullbright != null
+		? diffuse._fullbright
+		: null;
+	const oldFullbright = supportsEmissive && material.emissiveMap != null
+		? material.emissiveMap
+		: null;
+
+	if ( material.map === diffuse && oldFullbright === fullbright )
+		return false;
+
+	material.map = diffuse;
+	if ( hadMap !== hasMap )
+		material.needsUpdate = true;
+
+	if ( supportsEmissive ) {
+
+		const hadFullbright = oldFullbright != null;
+		const hasFullbright = fullbright != null;
+		material.emissiveMap = fullbright;
+		if ( hasFullbright )
+			material.emissive.setRGB( 1, 1, 1 );
+		else
+			material.emissive.setRGB( 0, 0, 0 );
+
+		if ( hadFullbright !== hasFullbright )
+			material.needsUpdate = true;
+
+	}
+
+	return true;
 
 }
 
@@ -1701,8 +1746,12 @@ export function R_DrawWorld() {
 
 	const cl_ref = cl;
 	if ( ! cl_ref || ! cl_ref.worldmodel ) return;
+	r_worldentity.model = cl_ref.worldmodel;
+	r_worldentity.frame = 0;
+	set_currententity( r_worldentity );
 
 	VectorCopy( r_refdef.vieworg, modelorg );
+	R_UpdateWorldTextureAnimations();
 
 	set_currenttexture( - 1 );
 
@@ -1910,8 +1959,7 @@ export function R_DrawWaterSurfaces() {
 				const geometry = EmitWaterPolysQuake( s, realtime );
 				if ( geometry ) {
 
-					const wt = R_TextureAnimation( s.texinfo.texture );
-					const material = _getWaterMaterial( wt, r_wateralpha.value );
+					const material = _getWaterMaterial( s.texinfo.texture, r_wateralpha.value );
 					_getWaterMesh( s, geometry, material, worldGroup );
 
 				}
@@ -1945,8 +1993,7 @@ export function R_DrawWaterSurfaces() {
 					const geometry = EmitWaterPolysQuake( s, realtime );
 					if ( geometry ) {
 
-						const wt = R_TextureAnimation( s.texinfo.texture );
-						const material = _getWaterMaterial( wt, r_wateralpha.value );
+						const material = _getWaterMaterial( t, r_wateralpha.value );
 						_getWaterMesh( s, geometry, material, worldGroup );
 
 					}
@@ -2434,6 +2481,7 @@ function R_BuildWorldMeshes() {
 	// Clear previous batch data
 	instanceVisInfo.length = 0;
 	worldBatchedMeshes.length = 0;
+	worldAnimatedMeshes.length = 0;
 
 	// Build a mapping from surface to ALL leaves that contain it.
 	// A surface is visible if ANY of its containing leaves is visible (PVS).
@@ -2540,8 +2588,8 @@ function R_BuildWorldMeshes() {
 	for ( const [ texKey, group ] of batchGroups ) {
 
 		const t = group.texture;
-		const animTex = R_TextureAnimation( t );
-		const diffuse = ( animTex && animTex.gl_texture ) ? animTex.gl_texture : t.gl_texture;
+		const animTex = R_TextureAnimation( t, 0 );
+		const diffuse = animTex != null && animTex.gl_texture != null ? animTex.gl_texture : t.gl_texture;
 		const lmTex = lightmapTextures[ group.lmNum ];
 		const material = lmTex
 			? createQuakeLightmapMaterial( diffuse, lmTex )
@@ -2582,10 +2630,23 @@ function R_BuildWorldMeshes() {
 
 		worldGroup.add( batchedMesh );
 		worldBatchedMeshes.push( batchedMesh );
+		if ( t.anim_total > 0 )
+			worldAnimatedMeshes.push( { mesh: batchedMesh, baseTexture: t } );
 
 	}
 
 	worldMeshesBuilt = true;
+
+}
+
+function R_UpdateWorldTextureAnimations() {
+
+	for ( let i = 0; i < worldAnimatedMeshes.length; i ++ ) {
+
+		const animated = worldAnimatedMeshes[ i ];
+		R_UpdateAnimatedMaterial( animated.mesh.material, animated.baseTexture, 0 );
+
+	}
 
 }
 
@@ -2641,6 +2702,7 @@ export function GL_BuildLightmaps() {
 	}
 
 	worldBatchedMeshes.length = 0;
+	worldAnimatedMeshes.length = 0;
 
 	// Dispose any other children in worldGroup (water/sky meshes added dynamically)
 	if ( worldGroup ) {

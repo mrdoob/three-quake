@@ -154,6 +154,7 @@ export let gldepthmax = 1;
 // Setter functions for mutable state (ES module imports are read-only)
 export function set_r_visframecount( v ) { r_visframecount = v; }
 export function inc_r_visframecount() { return ++ r_visframecount; }
+export function set_currententity( value ) { currententity = value; }
 export function set_c_brush_polys( v ) { c_brush_polys = v; }
 export function inc_c_brush_polys() { return ++ c_brush_polys; }
 export function set_currenttexture( v ) { currenttexture = v; }
