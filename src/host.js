@@ -21,7 +21,7 @@ import { NET_Init, NET_Poll, NET_Shutdown, NET_SendMessage, NET_CanSendMessage,
 import { SV_Init, SV_CheckForNewClients, SV_ClearDatagram,
 	SV_SendClientMessages, SV_DropClient } from './sv_main.js';
 import { SV_RunClients } from './sv_user.js';
-import { SV_Physics, SV_SetFrametime } from './sv_phys.js';
+import { SV_Physics, SV_SetFrametime, sv_gravity } from './sv_phys.js';
 import { sv, svs, client_t,
 	host_client, set_host_client } from './server.js';
 import { R_InitTextures, R_Init, D_FlushCaches } from './gl_rmisc.js';
@@ -44,6 +44,7 @@ import { S_LocalSound } from './snd_dma.js';
 import { M_Menu_Main_f } from './menu.js';
 import { R_Efrag_SetExternals } from './gl_refrag.js';
 import { Host_InitCommands } from './host_cmd.js';
+import { R_SetParticleExternals } from './r_part.js';
 
 /*
 
@@ -253,6 +254,7 @@ export async function Host_Init( parms ) {
 	Mod_Init();
 	NET_Init();
 	SV_Init();
+	R_SetParticleExternals( { sv_gravity: sv_gravity } );
 
 	// Wire up cvar server broadcast callback
 	Cvar_SetServerBroadcast( function ( msg ) {
