@@ -111,6 +111,7 @@ function DemoBuffer_WriteString( str ) {
 }
 
 const _demoWriteView = new DataView( new ArrayBuffer( 16 ) );
+const _demoWriteBytes = new Uint8Array( _demoWriteView.buffer );
 
 export function CL_WriteDemoMessage() {
 
@@ -127,7 +128,7 @@ export function CL_WriteDemoMessage() {
 
 	}
 
-	DemoBuffer_WriteBytes( new Uint8Array( _demoWriteView.buffer ), 0, 16 );
+	DemoBuffer_WriteBytes( _demoWriteBytes, 0, 16 );
 
 	// Write message data
 	DemoBuffer_WriteBytes( net_message.data, 0, net_message.cursize );
@@ -242,8 +243,8 @@ export function CL_GetMessage() {
 
 	}
 
-	// if ( cls.demorecording )
-	//     CL_WriteDemoMessage();
+	if ( cls.demorecording === true )
+		CL_WriteDemoMessage();
 	return r;
 
 }
