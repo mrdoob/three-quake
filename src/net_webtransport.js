@@ -93,7 +93,7 @@ function _WT_BuildSequencedPacket( sock, data, dataLength, forceHeader = false )
 
 }
 
-function _WT_ParseSequencedPacket( sock, packet ) {
+function _WT_ParseSequencedPacket( sock, packet, reliable ) {
 
 	if ( packet.length < WT_PACKET_HEADER_BYTES || packet[ 0 ] !== WT_PACKET_MAGIC )
 		return packet;
@@ -105,10 +105,11 @@ function _WT_ParseSequencedPacket( sock, packet ) {
 	if ( _isNewerSequence( acknowledged, sock.ackSequence | 0 ) )
 		sock.ackSequence = acknowledged;
 
-	if ( _isNewerSequence( sequence, sock.receiveSequence | 0 ) === false )
+	const receiveKey = reliable === true ? 'receiveSequence' : 'unreliableReceiveSequence';
+	if ( _isNewerSequence( sequence, sock[ receiveKey ] | 0 ) === false )
 		return null;
 
-	sock.receiveSequence = sequence;
+	sock[ receiveKey ] = sequence;
 	return packet.subarray( WT_PACKET_HEADER_BYTES );
 
 }
@@ -957,6 +958,7 @@ async function _WT_ConnectDirect( url, originalHost, roomId = null ) {
 		sock.driver = net_driverlevel;
 		sock.sendSequence = 0;
 		sock.receiveSequence = - 1;
+		sock.unreliableReceiveSequence = - 1;
 		sock.ackSequence = - 1;
 
 		// Create connection data
@@ -1314,7 +1316,7 @@ export function WT_QGetMessage( sock ) {
 
 		}
 
-		const payload = _WT_ParseSequencedPacket( sock, msg.data );
+		const payload = _WT_ParseSequencedPacket( sock, msg.data, msg.reliable );
 		if ( payload == null )
 			continue;
 

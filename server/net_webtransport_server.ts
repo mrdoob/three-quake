@@ -167,6 +167,7 @@ function _buildSequencedPacket(
 function _parseSequencedPacket(
   sock: QSocket,
   packet: Uint8Array,
+  reliable: boolean,
 ): Uint8Array | null {
   if (packet.length < WT_PACKET_HEADER_BYTES || packet[0] !== WT_PACKET_MAGIC) {
     return packet;
@@ -180,11 +181,14 @@ function _parseSequencedPacket(
     sock.ackSequence = acknowledged;
   }
 
-  if (_isNewerSequence(sequence, sock.receiveSequence | 0) === false) {
+  const receiveKey = reliable === true
+    ? "receiveSequence"
+    : "unreliableReceiveSequence";
+  if (_isNewerSequence(sequence, sock[receiveKey] | 0) === false) {
     return null;
   }
 
-  sock.receiveSequence = sequence;
+  sock[receiveKey] = sequence;
   return packet.subarray(WT_PACKET_HEADER_BYTES);
 }
 
@@ -461,6 +465,7 @@ async function _handleWebTransportSession(
     sock.lastMessageTime = performance.now() / 1000;
     sock.sendSequence = 0;
     sock.receiveSequence = -1;
+    sock.unreliableReceiveSequence = -1;
     sock.ackSequence = -1;
 
     pendingConnections.push(sock);
@@ -896,7 +901,7 @@ export function WT_QGetMessage(sock: QSocket): number {
       }
     }
 
-    const payload = _parseSequencedPacket(sock, msg.data);
+    const payload = _parseSequencedPacket(sock, msg.data, msg.reliable);
     if (payload === null) {
       continue;
     }
