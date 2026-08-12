@@ -1850,7 +1850,7 @@ function M_Keys_Key( key ) {
 		} else {
 
 			// Set the binding via Cbuf
-			Cbuf_AddText( 'bind "' + key + '" "' + bindnames[ m_keys_cursor ][ 0 ] + '"\n' );
+			Cbuf_AddText( 'bind "' + Key_KeynumToString( key ) + '" "' + bindnames[ m_keys_cursor ][ 0 ] + '"\n' );
 
 		}
 
