@@ -914,8 +914,22 @@ export function SV_WriteClientdataToMessage( ent, msg ) {
 	if ( ent.v.idealpitch !== 0 )
 		bits |= SU_IDEALPITCH;
 
-	// stuff the sigil bits into the high bits of items for sbar
-	const items = ( ent.v.items | 0 ) | ( ( ( pr_global_struct ? pr_global_struct.serverflags : 0 ) | 0 ) << 28 );
+	// stuff the sigil bits into the high bits of items for sbar, or else
+	// mix in the optional mission-pack items2 field
+	const items2 = GetEdictFieldValue( ent, 'items2' );
+	let items;
+	if ( items2 !== null ) {
+
+		const value = items2.accessor.getFloat( items2.ofs ) | 0;
+		items = ( ent.v.items | 0 ) | ( value << 23 );
+
+	} else {
+
+		const serverflags =
+			( pr_global_struct !== null ? pr_global_struct.serverflags : 0 ) | 0;
+		items = ( ent.v.items | 0 ) | ( serverflags << 28 );
+
+	}
 
 	bits |= SU_ITEMS;
 
