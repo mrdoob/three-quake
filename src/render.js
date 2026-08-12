@@ -97,6 +97,7 @@ export class refdef_t {
 	constructor() {
 
 		this.vrect = new vrect_t(); // subwindow in video for refresh
+		this.vrectScale = 1; // backing pixels per virtual 2D coordinate
 		this.aliasvrect = new vrect_t(); // scaled Alias version
 		this.vrectright = 0;
 		this.vrectbottom = 0; // right & bottom screen coords

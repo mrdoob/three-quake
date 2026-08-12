@@ -135,6 +135,7 @@ export function SCR_SetConHeight( height ) {
 	// Clamp to reasonable range
 	scr_conheight = Math.max( 200, Math.min( height, physicalHeight ) );
 	_calculateUIScale();
+	_realVid.recalc_refdef = 1;
 
 }
 

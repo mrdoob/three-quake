@@ -6,7 +6,8 @@ import { Con_Printf, Con_CheckResize, Con_DrawConsole, Con_DrawNotify, Con_Clear
 import { Sbar_Draw, Sbar_Changed, Sbar_IntermissionOverlay, Sbar_FinaleOverlay, SBAR_HEIGHT, set_sb_lines as Sbar_set_sb_lines } from './sbar.js';
 import { M_Draw } from './menu.js';
 import { Draw_Character, Draw_CachePic, Draw_Pic, Draw_FadeScreen, Draw_BeginFrame,
-	GL_Set2D, Draw_TileClear, Draw_PicFromWad, Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
+	GL_Set2D, Draw_TileClear, Draw_PicFromWad, Draw_GetUIScale,
+	Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
 import { Cvar_RegisterVariable, Cvar_Set, Cvar_VariableValue } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { key_dest, key_game, key_console, key_message } from './keys.js';
@@ -276,6 +277,7 @@ function SCR_CalcRefdef() {
 
 	scr_fullupdate = 0; // force a background redraw
 	_vid.recalc_refdef = false;
+	_r_refdef.vrectScale = Draw_GetUIScale();
 
 	// force the status bar to redraw
 	Sbar_Changed();

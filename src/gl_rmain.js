@@ -473,6 +473,37 @@ export function R_SetupGL() {
 
 	}
 
+	// The view rectangle uses virtual 2D coordinates with a top-left origin.
+	// Recreate Quake's physical-pixel viewport, then convert back to the logical
+	// coordinates Three.js expects before it reapplies the renderer pixel ratio.
+	if ( isXRActive() === false && renderer !== null ) {
+
+		renderer.getDrawingBufferSize( _setupgl_drawingBufferSize );
+		const bufferWidth = _setupgl_drawingBufferSize.x;
+		const bufferHeight = _setupgl_drawingBufferSize.y;
+		const scale = r_refdef.vrectScale;
+		let x = r_refdef.vrect.x * scale;
+		let x2 = ( r_refdef.vrect.x + r_refdef.vrect.width ) * scale;
+		let y = bufferHeight - r_refdef.vrect.y * scale;
+		let y2 = bufferHeight -
+			( r_refdef.vrect.y + r_refdef.vrect.height ) * scale;
+
+		// Match GLQuake's one-pixel expansion around fractional view boundaries.
+		if ( x > 0 ) x --;
+		if ( x2 < bufferWidth ) x2 ++;
+		if ( y2 < 0 ) y2 --;
+		if ( y < bufferHeight ) y ++;
+
+		const pixelRatio = renderer.getPixelRatio();
+		renderer.setViewport(
+			x / pixelRatio,
+			y2 / pixelRatio,
+			( x2 - x ) / pixelRatio,
+			( y - y2 ) / pixelRatio
+		);
+
+	}
+
 	// Update viewport dimensions
 	glx = 0;
 	gly = 0;
@@ -715,6 +746,17 @@ const _setupgl_forward = new Float32Array( 3 );
 const _setupgl_right = new Float32Array( 3 );
 const _setupgl_up = new Float32Array( 3 );
 const _setupgl_matrix = new THREE.Matrix4();
+const _setupgl_drawingBufferSize = {
+	x: 0,
+	y: 0,
+	set( x, y ) {
+
+		this.x = x;
+		this.y = y;
+		return this;
+
+	}
+};
 
 function R_DrawAliasModel( e ) {
 
