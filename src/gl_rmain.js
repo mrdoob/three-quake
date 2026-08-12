@@ -18,6 +18,7 @@ import { R_AnimateLight as R_AnimateLight_impl, R_PushDlights as R_PushDlights_i
 import { R_DrawAliasModel as R_DrawAliasModel_mesh, GL_DrawAliasShadow } from './gl_mesh.js';
 import { r_avertexnormal_dots } from './anorm_dots.js';
 import { V_SetContentsColor as V_SetContentsColor_view, V_CalcBlend as V_CalcBlend_view, v_blend as v_blend_view } from './view.js';
+import { chase_active } from './chase.js';
 import {
 	R_InitParticles, R_SetParticleExternals, R_ClearParticles,
 	R_DrawParticles as R_DrawParticles_impl
@@ -147,6 +148,7 @@ export let r_notexture_mip = null;
 // Shared renderer state is imported from glquake.js and re-exported here so
 // gl_rsurf.js keeps its existing dependency without adding a gl_rlight cycle.
 export { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount };
+export { chase_active };
 
 export let gldepthmin = 0;
 export let gldepthmax = 1;
@@ -187,8 +189,6 @@ export const gl_ztrick = new cvar_t( 'gl_ztrick', '1' );
 //============================================================================
 
 export const v_blend = new Float32Array( 4 ); // r, g, b, a
-
-export const chase_active = new cvar_t( 'chase_active', '0' );
 
 //============================================================================
 // R_CullBox
