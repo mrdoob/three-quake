@@ -188,6 +188,8 @@ export let r_entorigin = new Float32Array( 3 );
 export let currententity = null;
 export let r_visframecount = 0;
 export let r_framecount = 0;
+export function set_r_framecount( value ) { r_framecount = value; }
+export function inc_r_framecount() { return ++ r_framecount; }
 export let frustum = []; // mplane_t[4]
 export let c_brush_polys = 0;
 export let c_alias_polys = 0;

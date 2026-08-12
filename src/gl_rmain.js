@@ -27,7 +27,7 @@ import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
 	cl_lightstyle
 } from './client.js';
-import { d_lightstylevalue,
+import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
 	r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
 	r_fullbright, r_lightmap, r_shadows, r_mirroralpha,
 	r_wateralpha, r_dynamic, r_novis, r_drawworld, r_waterwarp,
@@ -102,7 +102,6 @@ export const r_entorigin = new Float32Array( 3 );
 export let currententity = null; // entity_t pointer
 
 export let r_visframecount = 0; // bumped when going to a new PVS
-export let r_framecount = 0; // used for dlight push checking
 
 // frustum planes (4 planes for view frustum)
 export class mplane_t {
@@ -145,9 +144,9 @@ export let r_oldviewleaf = null; // mleaf_t
 
 export let r_notexture_mip = null;
 
-// d_lightstylevalue is imported from glquake.js and re-exported here
-// so gl_rsurf.js can import it (avoids circular dep with gl_rlight.js)
-export { d_lightstylevalue };
+// Shared renderer state is imported from glquake.js and re-exported here so
+// gl_rsurf.js keeps its existing dependency without adding a gl_rlight cycle.
+export { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount };
 
 export let gldepthmin = 0;
 export let gldepthmax = 1;
@@ -155,8 +154,6 @@ export let gldepthmax = 1;
 // Setter functions for mutable state (ES module imports are read-only)
 export function set_r_visframecount( v ) { r_visframecount = v; }
 export function inc_r_visframecount() { return ++ r_visframecount; }
-export function set_r_framecount( v ) { r_framecount = v; }
-export function inc_r_framecount() { return ++ r_framecount; }
 export function set_c_brush_polys( v ) { c_brush_polys = v; }
 export function inc_c_brush_polys() { return ++ c_brush_polys; }
 export function set_currenttexture( v ) { currenttexture = v; }
@@ -283,7 +280,7 @@ export function R_SetupFrame() {
 
 	R_AnimateLight();
 
-	r_framecount ++;
+	inc_r_framecount();
 
 	// build the transformation matrix for the given view angles
 	VectorCopy( r_refdef.vieworg, r_origin );
@@ -1302,7 +1299,7 @@ export function R_NewMap() {
 	r_oldviewleaf = null;
 
 	// reset framecount
-	r_framecount = 1;
+	set_r_framecount( 1 );
 	r_visframecount = 0;
 
 	// initialize light style values
