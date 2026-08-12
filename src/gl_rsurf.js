@@ -265,6 +265,7 @@ function _getWaterMaterial( t, opacity ) {
 		_waterMaterialCache.set( cacheKey, material );
 
 	}
+	if ( material.opacity !== opacity ) material.opacity = opacity;
 
 	return material;
 

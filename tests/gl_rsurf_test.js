@@ -145,3 +145,62 @@ Deno.test( 'rebuilding lightmaps disposes old Three textures', () => {
 	}
 
 } );
+
+Deno.test( 'cached water materials track fractional opacity changes', () => {
+
+	const oldWorldmodel = cl.worldmodel;
+	const oldModels = cl.model_precache.slice();
+	const oldWaterAlpha = gl_rmain.r_wateralpha.value;
+	const oldFrame = gl_rmain.r_framecount;
+	const geometry = {
+		attributes: { uv: { needsUpdate: false } },
+		dispose() {}
+	};
+	const surface = {
+		flags: gl_rmain.SURF_DRAWTURB,
+		polys: {},
+		texinfo: {
+			texture: { anim_total: 0, gl_texture: { id: 987654 } }
+		},
+		_waterGeoCache: {
+			geometry: geometry,
+			origUvs: new Float32Array( 0 ),
+			turbUvs: new Float32Array( 0 ),
+			vertexCount: 0
+		}
+	};
+
+	try {
+
+		cl.worldmodel = {
+			numleafs: 0,
+			leafs: [],
+			firstmodelsurface: 0,
+			nummodelsurfaces: 0,
+			numsurfaces: 0,
+			surfaces: []
+		};
+		cl.model_precache.fill( null );
+		gl_rsurf.GL_BuildLightmaps();
+
+		gl_rmain.r_wateralpha.value = 0.25;
+		gl_rsurf.R_DrawSequentialPoly( surface );
+		const material = surface._waterMesh.material;
+		assertEqual( material.opacity, 0.25, 'initial fractional opacity' );
+
+		gl_rmain.r_wateralpha.value = 0.65;
+		gl_rsurf.R_DrawSequentialPoly( surface );
+		assertEqual( surface._waterMesh.material, material, 'cached material identity' );
+		assertEqual( material.opacity, 0.65, 'updated fractional opacity' );
+
+	} finally {
+
+		gl_rsurf.GL_BuildLightmaps();
+		cl.worldmodel = oldWorldmodel;
+		cl.model_precache.splice( 0, cl.model_precache.length, ...oldModels );
+		gl_rmain.r_wateralpha.value = oldWaterAlpha;
+		gl_rmain.set_r_framecount( oldFrame );
+
+	}
+
+} );
