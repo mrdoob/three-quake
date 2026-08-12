@@ -30,8 +30,9 @@ function createQuakeLightmapMaterial( diffuseMap, lightmapTex ) {
 	return new THREE.MeshLambertMaterial( matOptions );
 
 }
-import { cl, cl_dlights, MAX_VISEDICTS, cl_visedicts, cl_numvisedicts, set_cl_numvisedicts } from './client.js';
+import { cl, cl_dlights, MAX_DLIGHTS, MAX_VISEDICTS, cl_visedicts, cl_numvisedicts, set_cl_numvisedicts } from './client.js';
 import { R_StoreEfrags } from './gl_refrag.js';
+import { R_MarkLights } from './gl_rlight.js';
 import {
 	r_refdef, r_origin, vpn, vright, vup
 } from './render.js';
@@ -1308,6 +1309,22 @@ export function R_DrawBrushModel( e ) {
 
 	if ( R_CullBox( mins, maxs ) )
 		return;
+
+	// Calculate dynamic lighting for non-instanced brush models.
+	if ( clmodel.firstmodelsurface !== 0 && gl_flashblend.value === 0 ) {
+
+		const root = clmodel.nodes[ clmodel.hulls[ 0 ].firstclipnode ];
+		for ( let k = 0; k < MAX_DLIGHTS; k ++ ) {
+
+			const light = cl_dlights[ k ];
+			if ( light.die < cl.time || light.radius === 0 )
+				continue;
+
+			R_MarkLights( light, 1 << k, root, clmodel.surfaces );
+
+		}
+
+	}
 
 	// Update dynamic lightmaps for brush entity surfaces (flickering lights, etc.)
 	// This must happen every frame, even when using cached geometry, because
