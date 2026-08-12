@@ -11,7 +11,7 @@ import { cvar_t, Cvar_RegisterVariable, Cvar_VariableValue } from './cvar.js';
 import { Cmd_AddCommand } from './cmd.js';
 import { Cbuf_InsertText } from './cmd.js';
 import { clc_disconnect, clc_stringcmd } from './protocol.js';
-import { CL_GetMessage, CL_PlayDemo_f, CL_StopPlayback, CL_Stop_f } from './cl_demo.js';
+import { CL_GetMessage, CL_Record_f, CL_PlayDemo_f, CL_TimeDemo_f, CL_StopPlayback, CL_Stop_f } from './cl_demo.js';
 import { CL_ParseServerMessage } from './cl_parse.js';
 import { SIGNONS, MAX_DLIGHTS, MAX_EFRAGS, MAX_BEAMS, MAX_TEMP_ENTITIES,
 	MAX_DEMOS, MAX_VISEDICTS,
@@ -1293,10 +1293,10 @@ export function CL_Init() {
 
 	Cmd_AddCommand( 'entities', CL_PrintEntities_f );
 	Cmd_AddCommand( 'disconnect', CL_Disconnect_f );
-	// Cmd_AddCommand( 'record', CL_Record_f );
-	// Cmd_AddCommand( 'stop', CL_Stop_f );
+	Cmd_AddCommand( 'record', CL_Record_f );
+	Cmd_AddCommand( 'stop', CL_Stop_f );
 	Cmd_AddCommand( 'playdemo', CL_PlayDemo_f );
-	// Cmd_AddCommand( 'timedemo', CL_TimeDemo_f );
+	Cmd_AddCommand( 'timedemo', CL_TimeDemo_f );
 
 }
 
