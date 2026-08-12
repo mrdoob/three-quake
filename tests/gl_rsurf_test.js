@@ -110,3 +110,38 @@ Deno.test( 'cached world materials advance animated textures', () => {
 	}
 
 } );
+
+Deno.test( 'rebuilding lightmaps disposes old Three textures', () => {
+
+	const oldFrame = gl_rmain.r_framecount;
+	const textures = gl_rsurf.lightmapTextures;
+	let firstDisposals = 0;
+	let secondDisposals = 0;
+
+	try {
+
+		assertEqual( textures.length, 0, 'initial lightmap texture count' );
+		textures.push(
+			{ dispose() { firstDisposals ++; } },
+			null,
+			{ dispose() { secondDisposals ++; } }
+		);
+
+		gl_rsurf.GL_BuildLightmaps();
+		assertEqual( gl_rsurf.lightmapTextures, textures, 'lightmap array identity' );
+		assertEqual( textures.length, 0, 'cleared lightmap textures' );
+		assertEqual( firstDisposals, 1, 'first texture disposal count' );
+		assertEqual( secondDisposals, 1, 'second texture disposal count' );
+
+		gl_rsurf.GL_BuildLightmaps();
+		assertEqual( firstDisposals, 1, 'idempotent first texture disposal' );
+		assertEqual( secondDisposals, 1, 'idempotent second texture disposal' );
+
+	} finally {
+
+		textures.length = 0;
+		gl_rmain.set_r_framecount( oldFrame );
+
+	}
+
+} );

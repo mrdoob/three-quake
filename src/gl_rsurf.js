@@ -2759,6 +2759,16 @@ export function GL_BuildLightmaps() {
 	if ( solidSkyMaterial ) { solidSkyMaterial.dispose(); solidSkyMaterial = null; }
 	if ( alphaSkyMaterial ) { alphaSkyMaterial.dispose(); alphaSkyMaterial = null; }
 
+	// Three.js materials do not own or dispose the textures they reference.
+	for ( let i = 0; i < lightmapTextures.length; i ++ ) {
+
+		const texture = lightmapTextures[ i ];
+		if ( texture != null ) texture.dispose();
+
+	}
+
+	lightmapTextures.length = 0;
+
 	// clear allocation
 	for ( let i = 0; i < MAX_LIGHTMAPS; i ++ )
 		allocated[ i ].fill( 0 );
