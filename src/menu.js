@@ -19,6 +19,7 @@ import { gl_texturemode, GL_UpdateTextureFiltering } from './glquake.js';
 import { skill, coop, teamplay, deathmatch, svs } from './server.js';
 import { Touch_ExitFullscreen } from './touch.js';
 import { Draw_GetVirtualWidth, Draw_GetVirtualHeight } from './gl_draw.js';
+import { SAVEGAME_COMMENT_LENGTH } from './quakedef.js';
 
 /*
 ==============================================================================
@@ -765,6 +766,7 @@ function M_SinglePlayer_Key( key ) {
 
 let load_cursor = 0;
 const MAX_SAVEGAMES = 12;
+const SAVE_STORAGE_PREFIX = 'quake_save_';
 
 const m_filenames = [];
 const loadable = [];
@@ -777,11 +779,43 @@ for ( let i = 0; i < MAX_SAVEGAMES; i ++ ) {
 
 function M_ScanSaves() {
 
-	// In browser, save games would be stored in localStorage or IndexedDB
 	for ( let i = 0; i < MAX_SAVEGAMES; i ++ ) {
 
 		m_filenames[ i ] = '--- UNUSED SLOT ---';
 		loadable[ i ] = false;
+
+	}
+	let storage;
+	try {
+
+		if ( typeof localStorage === 'undefined' ) return;
+		storage = localStorage;
+
+	} catch ( e ) {
+
+		return;
+
+	}
+
+	for ( let i = 0; i < MAX_SAVEGAMES; i ++ ) {
+
+		let saveData;
+		try {
+
+			saveData = storage.getItem( SAVE_STORAGE_PREFIX + 's' + i );
+
+		} catch ( e ) {
+
+			return;
+
+		}
+		if ( saveData === null ) continue;
+
+		const lines = saveData.split( '\n', 2 );
+		if ( lines.length < 2 ) continue;
+
+		m_filenames[ i ] = lines[ 1 ].substring( 0, SAVEGAME_COMMENT_LENGTH ).replace( /_/g, ' ' );
+		loadable[ i ] = true;
 
 	}
 
