@@ -638,10 +638,10 @@ export function R_DrawParticles() {
 
 	if ( ! client_cl || ! _scene ) return;
 
-	// Use absolute frametime, not cl.time - cl.oldtime
-	// cl.time can be modified by CL_LerpPoint which causes frametime to go <= 0
+	// cl.time can be modified by CL_LerpPoint, but an exact zero delta means
+	// the client is paused and particle physics must remain frozen.
 	let frametime = client_cl.time - client_cl.oldtime;
-	if ( frametime <= 0 || frametime > 0.5 ) {
+	if ( frametime < 0 || frametime > 0.5 ) {
 
 		// Fallback to a reasonable frametime for particle physics
 		// but still process dead particle removal

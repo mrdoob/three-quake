@@ -177,6 +177,7 @@ export class BufferGeometry {
 		this.index = null;
 		this.boundingBox = null;
 		this.boundingSphere = null;
+		this.drawRange = { start: 0, count: Infinity };
 	}
 	setAttribute(name, attr) {
 		this.attributes[name] = attr;
@@ -188,6 +189,10 @@ export class BufferGeometry {
 	setIndex(index) {
 		this.index = index;
 		return this;
+	}
+	setDrawRange(start, count) {
+		this.drawRange.start = start;
+		this.drawRange.count = count;
 	}
 	computeBoundingBox() {}
 	computeBoundingSphere() {}
@@ -254,6 +259,13 @@ export class SpriteMaterial extends Material {
 	}
 }
 
+export class PointsMaterial extends Material {
+	constructor(params = {}) {
+		super();
+		Object.assign(this, params);
+	}
+}
+
 // Object3D stubs
 export class Object3D {
 	constructor() {
@@ -287,6 +299,14 @@ export class PointLight extends Object3D {
 		this.intensity = intensity;
 		this.distance = distance;
 		this.decay = decay;
+	}
+}
+
+export class Points extends Object3D {
+	constructor(geometry, material) {
+		super();
+		this.geometry = geometry;
+		this.material = material;
 	}
 }
 
