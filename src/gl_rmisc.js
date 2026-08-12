@@ -12,7 +12,7 @@ import { d_lightstylevalue, r_viewleaf, r_norefresh, r_lightmap,
 	gl_mtexable, skytexturenum, mirrortexturenum,
 	getTextureExtensionNumber, particletexture, playertextures,
 	envmap } from './glquake.js';
-import { r_worldentity, R_Init as R_Init_rmain, GL_BuildLightmaps as GL_BuildLightmaps_impl } from './gl_rmain.js';
+import { r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
 import { cl, cl_entities } from './client.js';
 import { d_8to24table } from './vid.js';
@@ -22,8 +22,6 @@ let Cmd_AddCommand = null;
 let Cvar_RegisterVariable = null;
 let Cvar_SetValue = null;
 let R_InitParticles = null;
-let R_ClearParticles = null;
-let GL_BuildLightmaps = null;
 let R_RenderView = null;
 
 export function R_Misc_SetCallbacks( callbacks ) {
@@ -32,8 +30,6 @@ export function R_Misc_SetCallbacks( callbacks ) {
 	if ( callbacks.Cvar_RegisterVariable ) Cvar_RegisterVariable = callbacks.Cvar_RegisterVariable;
 	if ( callbacks.Cvar_SetValue ) Cvar_SetValue = callbacks.Cvar_SetValue;
 	if ( callbacks.R_InitParticles ) R_InitParticles = callbacks.R_InitParticles;
-	if ( callbacks.R_ClearParticles ) R_ClearParticles = callbacks.R_ClearParticles;
-	if ( callbacks.GL_BuildLightmaps ) GL_BuildLightmaps = callbacks.GL_BuildLightmaps;
 	if ( callbacks.R_RenderView ) R_RenderView = callbacks.R_RenderView;
 
 }
@@ -405,13 +401,6 @@ export function R_NewMap( cl ) {
 	for ( let i = 0; i < 256; i ++ )
 		d_lightstylevalue[ i ] = 264; // normal light value
 
-	// Set up world entity
-	if ( r_worldentity ) {
-
-		r_worldentity.model = cl.worldmodel;
-
-	}
-
 	// clear out efrags in case the level hasn't been reloaded
 	if ( cl.worldmodel && cl.worldmodel.leafs ) {
 
@@ -420,11 +409,7 @@ export function R_NewMap( cl ) {
 
 	}
 
-	// r_viewleaf = null
-	if ( R_ClearParticles )
-		R_ClearParticles();
-
-	GL_BuildLightmaps_impl();
+	R_NewMap_rmain();
 
 	// identify sky texture
 	let skyTexNum = - 1;

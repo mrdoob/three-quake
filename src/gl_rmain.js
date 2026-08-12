@@ -25,7 +25,7 @@ import {
 import { isXRActive, getXRRig, XR_SetCamera, XR_SCALE, XR_GetControllerWorldPose } from './webxr.js';
 import {
 	cl, cl_visedicts, cl_numvisedicts, cl_dlights, cl_entities,
-	cl_lightstyle
+	cl_static_entities, cl_temp_entities, cl_lightstyle
 } from './client.js';
 import { d_lightstylevalue, r_framecount, set_r_framecount, inc_r_framecount,
 	r_norefresh, r_drawentities, r_drawviewmodel, r_speeds,
@@ -154,6 +154,7 @@ export let gldepthmax = 1;
 // Setter functions for mutable state (ES module imports are read-only)
 export function set_r_visframecount( v ) { r_visframecount = v; }
 export function inc_r_visframecount() { return ++ r_visframecount; }
+export function set_r_worldentity( value ) { r_worldentity = value; }
 export function set_currententity( value ) { currententity = value; }
 export function set_c_brush_polys( v ) { c_brush_polys = v; }
 export function inc_c_brush_polys() { return ++ c_brush_polys; }
@@ -734,6 +735,73 @@ export function R_DrawViewModel() {
 // Track entity meshes currently in the scene for efficient add/remove
 let _entityMeshesInScene = new Set();
 let _entityMeshesThisFrame = new Set();
+const _entityMeshCacheOwners = new Set();
+
+function _disposeEntityGeometry( geometry, geometries ) {
+
+	if ( geometry == null || geometries.has( geometry ) ) return;
+	geometries.add( geometry );
+	geometry.dispose();
+
+}
+
+function _disposeEntityMaterial( material, materials ) {
+
+	if ( material == null || materials.has( material ) ) return;
+	materials.add( material );
+	material.dispose();
+
+}
+
+function _detachEntityMesh( mesh ) {
+
+	if ( mesh == null ) return;
+	if ( mesh.parent != null ) mesh.parent.remove( mesh );
+	mesh._quakeOwner = null;
+
+}
+
+function _clearEntityMeshCache( entity, geometries, materials ) {
+
+	if ( entity == null ) return;
+
+	const spriteMesh = entity._spriteMesh;
+	const aliasMesh = entity._aliasMesh;
+	const shadowMesh = entity._aliasShadowMesh;
+	const aliasGeometry = entity._aliasGeo;
+	const shadowGeometry = entity._aliasShadowGeo;
+	const viewmodelMaterial = entity._viewmodelMaterial;
+	const playerMaterial = entity._playerMaterial;
+	if ( spriteMesh == null && aliasMesh == null && shadowMesh == null &&
+		aliasGeometry == null && shadowGeometry == null &&
+		viewmodelMaterial == null && playerMaterial == null ) return;
+
+	_detachEntityMesh( spriteMesh );
+	_detachEntityMesh( aliasMesh );
+	_detachEntityMesh( shadowMesh );
+
+	_disposeEntityGeometry( spriteMesh != null ? spriteMesh.geometry : null, geometries );
+	_disposeEntityGeometry( aliasGeometry, geometries );
+	_disposeEntityGeometry( shadowGeometry, geometries );
+	_disposeEntityMaterial( viewmodelMaterial, materials );
+	_disposeEntityMaterial( playerMaterial, materials );
+
+	entity._spriteMesh = null;
+	entity._aliasMesh = null;
+	entity._aliasGeo = null;
+	entity._aliasColorArray = null;
+	entity._aliasPaliashdr = null;
+	entity._aliasPosenum = undefined;
+	entity._aliasShadowMesh = null;
+	entity._aliasShadowGeo = null;
+	entity._aliasShadowPosArray = null;
+	entity._aliasShadowVertCount = undefined;
+	entity._viewmodelMaterial = null;
+	entity._viewmodelMaterialBase = null;
+	entity._playerMaterial = null;
+	entity._playerSkinTexture = null;
+
+}
 
 // Pre-allocated vector for dynamic light distance calculation (avoid per-frame allocation)
 const _dlightDist = [ 0, 0, 0 ];
@@ -833,6 +901,12 @@ function R_DrawAliasModel( e ) {
 	}
 
 	const mesh = R_DrawAliasModel_mesh( e, paliashdr, shadedots, shadelight );
+	if ( mesh != null ) {
+
+		mesh._quakeOwner = e;
+		_entityMeshCacheOwners.add( e );
+
+	}
 	if ( mesh && scene ) {
 
 		if ( ! _entityMeshesInScene.has( mesh ) ) {
@@ -851,6 +925,9 @@ function R_DrawAliasModel( e ) {
 
 		const shadowMesh = GL_DrawAliasShadow( e, paliashdr, e._aliasPosenum || 0, lightspot, _shadevector );
 		if ( shadowMesh != null ) {
+
+			shadowMesh._quakeOwner = e;
+			_entityMeshCacheOwners.add( e );
 
 			if ( ! _entityMeshesInScene.has( shadowMesh ) ) {
 
@@ -1005,6 +1082,8 @@ function R_DrawSpriteModel( e ) {
 		if ( mesh.material !== material ) mesh.material = material;
 
 	}
+	mesh._quakeOwner = e;
+	_entityMeshCacheOwners.add( e );
 
 	// Update billboard vertex positions every frame
 	posAttr = mesh.geometry.attributes.position;
@@ -1288,27 +1367,68 @@ export function R_NewMap() {
 	// clear old data
 	r_viewleaf = null;
 	r_oldviewleaf = null;
+	const resetWorldEntity = new entity_t();
+	if ( r_worldentity == null ) {
+
+		r_worldentity = resetWorldEntity;
+
+	} else {
+
+		// WinQuake memsets one static entity, so preserve its published identity.
+		for ( const key of Object.keys( r_worldentity ) )
+			delete r_worldentity[ key ];
+		Object.assign( r_worldentity, resetWorldEntity );
+
+	}
+	r_worldentity.model = cl != null ? cl.worldmodel : null;
 
 	// reset framecount
 	set_r_framecount( 1 );
 	r_visframecount = 0;
 
-	// initialize light style values
-	for ( let i = 0; i < 256; i ++ ) {
+	R_ClearParticles();
 
-		d_lightstylevalue[ i ] = 264;
+	// Clean up all cached entity resources from the previous map. Static
+	// entities keep their JS identity across CL_ClearState, so invalidate the
+	// owner-side caches as well as the scene tracking sets.
+	const geometries = new Set();
+	const materials = new Set();
+	for ( const owner of _entityMeshCacheOwners )
+		_clearEntityMeshCache( owner, geometries, materials );
+	_entityMeshCacheOwners.clear();
 
-	}
+	for ( let i = 0; i < cl_entities.length; i ++ )
+		_clearEntityMeshCache( cl_entities[ i ], geometries, materials );
+	for ( let i = 0; i < cl_static_entities.length; i ++ )
+		_clearEntityMeshCache( cl_static_entities[ i ], geometries, materials );
+	for ( let i = 0; i < cl_temp_entities.length; i ++ )
+		_clearEntityMeshCache( cl_temp_entities[ i ], geometries, materials );
+	if ( cl != null ) _clearEntityMeshCache( cl.viewent, geometries, materials );
 
-	// Clean up all cached entity meshes from the previous map
 	for ( const mesh of _entityMeshesInScene ) {
 
-		if ( scene ) scene.remove( mesh );
+		if ( mesh.parent != null ) mesh.parent.remove( mesh );
+		if ( mesh.geometry != null && geometries.has( mesh.geometry ) === false ) {
+
+			geometries.add( mesh.geometry );
+			mesh.geometry.dispose();
+
+		}
 
 	}
 
-	_entityMeshesInScene = new Set();
+	_entityMeshesInScene.clear();
 	_entityMeshesThisFrame.clear();
+	for ( const material of _spriteMaterialCache.values() ) {
+
+		if ( materials.has( material ) === false ) {
+
+			materials.add( material );
+			material.dispose();
+
+		}
+
+	}
 	_spriteMaterialCache.clear();
 
 	// rebuild lightmaps

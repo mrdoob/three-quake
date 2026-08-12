@@ -1393,6 +1393,7 @@ export function R_DrawBrushModel( e ) {
 
 		// Frame changed - dispose old group and rebuild
 		_allBrushEntityGroups.delete( brushGroup );
+		brushGroup._quakeOwner = null;
 		if ( brushGroup.parent ) brushGroup.parent.remove( brushGroup );
 		for ( const child of brushGroup.children ) {
 
@@ -1519,6 +1520,7 @@ export function R_DrawBrushModel( e ) {
 		e._brushGroup = brushGroup;
 		e._brushGroupFrame = e.frame;
 		e._brushAnimSurfaces = animSurfaces;
+		brushGroup._quakeOwner = e;
 		_allBrushEntityGroups.add( brushGroup );
 
 	}
@@ -2744,6 +2746,15 @@ export function GL_BuildLightmaps() {
 	// Dispose all cached brush entity groups (geometry disposal)
 	for ( const group of _allBrushEntityGroups ) {
 
+		const owner = group._quakeOwner;
+		if ( owner != null && owner._brushGroup === group ) {
+
+			owner._brushGroup = null;
+			owner._brushGroupFrame = undefined;
+			owner._brushAnimSurfaces = null;
+
+		}
+		group._quakeOwner = null;
 		if ( group.parent ) group.parent.remove( group );
 		for ( const child of group.children ) {
 
@@ -2754,6 +2765,7 @@ export function GL_BuildLightmaps() {
 	}
 
 	_allBrushEntityGroups.clear();
+	brushEntityGroups.length = 0;
 
 	// Reset sky materials so they pick up new sky textures
 	if ( solidSkyMaterial ) { solidSkyMaterial.dispose(); solidSkyMaterial = null; }
