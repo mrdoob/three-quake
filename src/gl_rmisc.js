@@ -12,7 +12,7 @@ import { d_lightstylevalue, r_viewleaf, r_norefresh, r_lightmap,
 	gl_mtexable, skytexturenum, mirrortexturenum,
 	getTextureExtensionNumber, particletexture, playertextures,
 	envmap } from './glquake.js';
-import { r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain } from './gl_rmain.js';
+import { mod_alias, r_worldentity, R_Init as R_Init_rmain, R_NewMap as R_NewMap_rmain } from './gl_rmain.js';
 import { set_skytexturenum as set_skytexturenum_rsurf } from './gl_rsurf.js';
 import { cl, cl_entities } from './client.js';
 import { d_8to24table } from './vid.js';
@@ -328,7 +328,7 @@ export function R_TranslatePlayerSkin( playernum ) {
 		return; // player doesn't have a model yet
 
 	const model = entity.model;
-	if ( model.type !== 'mod_alias' )
+	if ( model.type !== mod_alias )
 		return; // only translate skins on alias models
 
 	const paliashdr = model.cache != null ? model.cache.data : null;
