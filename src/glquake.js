@@ -267,11 +267,19 @@ export const _allGameTextures = [];
 
 export function GL_RegisterTexture( texture ) {
 
-	if ( texture && ! _allGameTextures.includes( texture ) ) {
+	if ( texture != null && _allGameTextures.includes( texture ) === false ) {
 
 		_allGameTextures.push( texture );
 
 	}
+
+}
+
+export function GL_UnregisterTexture( texture ) {
+
+	if ( texture == null ) return;
+	const index = _allGameTextures.indexOf( texture );
+	if ( index !== - 1 ) _allGameTextures.splice( index, 1 );
 
 }
 

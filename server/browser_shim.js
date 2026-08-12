@@ -16,6 +16,7 @@ export class DataTexture {
 	constructor() {
 		this.needsUpdate = false;
 	}
+	dispose() {}
 }
 
 // Constants that might be referenced

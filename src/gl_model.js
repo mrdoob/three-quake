@@ -27,7 +27,7 @@ import {
 	MIPLEVELS, MAXLIGHTMAPS, NUM_AMBIENTS,
 	TEX_SPECIAL
 } from './bspfile.js';
-import { gl_texturemode, GL_RegisterTexture } from './glquake.js';
+import { gl_texturemode, GL_RegisterTexture, GL_UnregisterTexture } from './glquake.js';
 
 // ============================================================================
 // modelgen.h constants
@@ -603,6 +603,7 @@ export class model_t {
 
 		// additional model data
 		this.cache = { data: null };	// cache_user_t equivalent
+		this._threeTextures = new Set();
 
 	}
 
@@ -657,6 +658,7 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 	const rgba = new Uint8Array( width * height * 4 );
 	const fullbrightStart = vid.fullbright; // palette index 224+
 	let hasFullbright = false;
+	let fullbrightTexture = null;
 
 	for ( let i = 0; i < width * height; i ++ ) {
 
@@ -714,20 +716,18 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 
 		}
 
-		const fbTexture = new THREE.DataTexture( fbRgba, width, height, THREE.RGBAFormat );
+		fullbrightTexture = new THREE.DataTexture( fbRgba, width, height, THREE.RGBAFormat );
 		const fbFilter = gl_texturemode.value ? THREE.LinearFilter : THREE.NearestFilter;
 		const fbMipFilter = gl_texturemode.value ? THREE.LinearMipmapLinearFilter : THREE.NearestMipmapLinearFilter;
-		fbTexture.magFilter = fbFilter;
-		fbTexture.minFilter = mipmap ? fbMipFilter : fbFilter;
-		fbTexture.wrapS = THREE.RepeatWrapping;
-		fbTexture.wrapT = THREE.RepeatWrapping;
-		fbTexture.generateMipmaps = mipmap;
-		fbTexture.colorSpace = THREE.SRGBColorSpace;
-		fbTexture.needsUpdate = true;
-		GL_RegisterTexture( fbTexture );
-
-		// Store on a temporary variable, will be attached to the main texture below
-		rgba._fullbrightTexture = fbTexture;
+		fullbrightTexture.magFilter = fbFilter;
+		fullbrightTexture.minFilter = mipmap ? fbMipFilter : fbFilter;
+		fullbrightTexture.wrapS = THREE.RepeatWrapping;
+		fullbrightTexture.wrapT = THREE.RepeatWrapping;
+		fullbrightTexture.generateMipmaps = mipmap;
+		fullbrightTexture.colorSpace = THREE.SRGBColorSpace;
+		fullbrightTexture.needsUpdate = true;
+		GL_RegisterTexture( fullbrightTexture );
+		if ( loadmodel != null ) loadmodel._threeTextures.add( fullbrightTexture );
 
 	}
 
@@ -746,14 +746,15 @@ function GL_LoadTexture( name, width, height, data, mipmap, alpha, splitFullbrig
 	texture.needsUpdate = true;
 
 	// Attach fullbright texture if one was created
-	if ( rgba._fullbrightTexture != null ) {
+	if ( fullbrightTexture != null ) {
 
-		texture._fullbright = rgba._fullbrightTexture;
+		texture._fullbright = fullbrightTexture;
 
 	}
 
 	// Register for filter updates when setting changes
 	GL_RegisterTexture( texture );
+	if ( loadmodel != null ) loadmodel._threeTextures.add( texture );
 
 	return texture;
 
@@ -781,6 +782,12 @@ function R_InitSky( tx ) {
 		offsets: [ 0 ] // pixels already starts at the texture data
 	};
 	const result = R_InitSky_warp( mt, d_8to24table );
+	if ( loadmodel != null ) {
+
+		loadmodel._threeTextures.add( result.solidTexture );
+		loadmodel._threeTextures.add( result.alphaTexture );
+
+	}
 	solidskytexture = result.solidTexture;
 	alphaskytexture = result.alphaTexture;
 
@@ -922,13 +929,48 @@ export function Mod_LeafPVS( leaf, model ) {
 
 export function Mod_ClearAll() {
 
+	const disposedTextures = new Set();
 	for ( let i = 0; i < mod_numknown; i ++ ) {
 
 		const mod = mod_known[ i ];
-		if ( mod.type !== mod_alias )
-			mod.needload = true;
+		if ( mod.type === mod_alias ) continue;
+
+		for ( const texture of mod._threeTextures ) {
+
+			GL_UnregisterTexture( texture );
+			if ( disposedTextures.has( texture ) === false ) {
+
+				disposedTextures.add( texture );
+				texture.dispose();
+
+			}
+
+		}
+		mod._threeTextures.clear();
+
+		if ( mod.type === mod_brush && mod.textures != null ) {
+
+			for ( let j = 0; j < mod.textures.length; j ++ ) {
+
+				const modelTexture = mod.textures[ j ];
+				if ( modelTexture == null || modelTexture.gl_texture == null ) continue;
+				modelTexture.gl_texture._fullbright = null;
+				modelTexture.gl_texture = null;
+
+			}
+
+		} else if ( mod.type === mod_sprite ) {
+
+			mod.cache.data = null;
+
+		}
+
+		mod.needload = true;
 
 	}
+
+	solidskytexture = null;
+	alphaskytexture = null;
 
 }
 
